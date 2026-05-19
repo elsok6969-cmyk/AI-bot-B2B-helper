@@ -1,11 +1,9 @@
 import asyncio
 import sys
 
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from src.bot.app import create_bot, create_dispatcher
 from src.config import settings
 from src.db.seed import ensure_owner
 from src.utils.logger import logger, setup_logger
@@ -14,11 +12,8 @@ from src.utils.logger import logger, setup_logger
 async def run() -> None:
     setup_logger(settings.log_level)
 
-    bot = Bot(
-        token=settings.bot_token.get_secret_value(),
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
-    dp = Dispatcher()
+    bot = create_bot()
+    dp = create_dispatcher()
     scheduler = AsyncIOScheduler(timezone=settings.tz)
 
     @dp.startup()
@@ -35,7 +30,7 @@ async def run() -> None:
         await bot.session.close()
         logger.info("Bot stopped")
 
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 
 def main() -> None:
