@@ -11,9 +11,8 @@ from sqlalchemy.orm import selectinload
 from src.ai.analyzer import analyze_inbound
 from src.ai.profiler import update_profile
 from src.ai.responder import suggest_reply
-from src.db.models import Client, Conversation
+from src.db.models import Client, Conversation, MessageDirection, User
 from src.db.models import Message as MessageModel
-from src.db.models import MessageDirection, User
 from src.db.session import SessionLocal
 from src.utils.logger import logger
 
@@ -74,9 +73,7 @@ async def process_inbound_message(
     """
     try:
         async with SessionLocal() as session:
-            msg = await session.scalar(
-                select(MessageModel).where(MessageModel.id == message_id)
-            )
+            msg = await session.scalar(select(MessageModel).where(MessageModel.id == message_id))
             if msg is None or msg.direction != MessageDirection.IN:
                 return
             conversation = await session.scalar(
@@ -84,13 +81,9 @@ async def process_inbound_message(
             )
             if conversation is None:
                 return
-            client = await session.scalar(
-                select(Client).where(Client.id == conversation.client_id)
-            )
+            client = await session.scalar(select(Client).where(Client.id == conversation.client_id))
             manager = (
-                await session.scalar(
-                    select(User).where(User.id == conversation.user_id)
-                )
+                await session.scalar(select(User).where(User.id == conversation.user_id))
                 if conversation.user_id is not None
                 else None
             )
@@ -139,7 +132,6 @@ async def suggest_reply_for_client(
 
     Returns (None, []) when the slug is unknown.
     """
-    from src.ai.responder import suggest_reply
 
     client = await session.scalar(
         select(Client)
@@ -153,9 +145,7 @@ async def suggest_reply_for_client(
     if conversation_id is None:
         return client, []
 
-    history = await _load_recent_messages(
-        session, conversation_id=conversation_id, limit=30
-    )
+    history = await _load_recent_messages(session, conversation_id=conversation_id, limit=30)
     variants = await suggest_reply(
         client=client,
         profile=client.profile,

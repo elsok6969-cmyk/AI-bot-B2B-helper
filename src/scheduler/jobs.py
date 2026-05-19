@@ -29,9 +29,7 @@ async def daily_digest_job() -> None:
     logger.info("daily_digest_job started")
 
     async with SessionLocal() as session:
-        managers = (
-            await session.execute(select(User).order_by(User.created_at))
-        ).scalars().all()
+        managers = (await session.execute(select(User).order_by(User.created_at))).scalars().all()
 
         sent = 0
         skipped = 0
@@ -109,9 +107,7 @@ async def check_reminders_job() -> None:
         if delivered:
             await session.commit()
         if delivered or failed:
-            logger.info(
-                "check_reminders_job: delivered={} failed={}", delivered, failed
-            )
+            logger.info("check_reminders_job: delivered={} failed={}", delivered, failed)
 
 
 # ---------------------------------------------------------------------------
@@ -132,13 +128,17 @@ async def nightly_profile_refresh() -> None:
 
     async with SessionLocal() as session:
         clients = (
-            await session.execute(
-                select(Client).where(
-                    Client.last_inbound_at.is_not(None),
-                    Client.last_inbound_at >= active_cutoff,
+            (
+                await session.execute(
+                    select(Client).where(
+                        Client.last_inbound_at.is_not(None),
+                        Client.last_inbound_at >= active_cutoff,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         refreshed = 0
         skipped = 0
@@ -155,6 +155,4 @@ async def nightly_profile_refresh() -> None:
             except Exception:
                 logger.exception("Profile refresh failed for client {}", client.slug)
 
-    logger.info(
-        "nightly_profile_refresh finished: refreshed={} skipped={}", refreshed, skipped
-    )
+    logger.info("nightly_profile_refresh finished: refreshed={} skipped={}", refreshed, skipped)

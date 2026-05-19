@@ -9,6 +9,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from src.bot.app import create_bot, create_dispatcher
 from src.config import settings
 from src.db.seed import ensure_owner
+from src.health import start_health_server
 from src.scheduler.context import set_bot
 from src.scheduler.jobs import (
     check_reminders_job,
@@ -34,6 +35,8 @@ async def run() -> None:
         timezone=settings.tz,
         jobstores={"default": SQLAlchemyJobStore(url=_sync_database_url())},
     )
+
+    health_runner = await start_health_server()
 
     @dp.startup()
     async def _on_startup() -> None:
@@ -75,7 +78,13 @@ async def run() -> None:
         await bot.session.close()
         logger.info("Bot stopped")
 
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    try:
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    finally:
+        try:
+            await health_runner.cleanup()
+        except Exception:
+            logger.exception("Failed to clean up health server")
 
 
 def main() -> None:

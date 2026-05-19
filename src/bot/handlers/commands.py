@@ -145,25 +145,33 @@ async def cmd_client(
         return
 
     recent_messages = (
-        await session.execute(
-            select(MessageModel)
-            .join(Conversation, Conversation.id == MessageModel.conversation_id)
-            .where(Conversation.client_id == client.id)
-            .order_by(MessageModel.sent_at.desc().nulls_last(), MessageModel.created_at.desc())
-            .limit(10)
+        (
+            await session.execute(
+                select(MessageModel)
+                .join(Conversation, Conversation.id == MessageModel.conversation_id)
+                .where(Conversation.client_id == client.id)
+                .order_by(MessageModel.sent_at.desc().nulls_last(), MessageModel.created_at.desc())
+                .limit(10)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     reminders = (
-        await session.execute(
-            select(Reminder)
-            .where(
-                Reminder.client_id == client.id,
-                Reminder.status == ReminderStatus.PENDING,
+        (
+            await session.execute(
+                select(Reminder)
+                .where(
+                    Reminder.client_id == client.id,
+                    Reminder.status == ReminderStatus.PENDING,
+                )
+                .order_by(Reminder.due_at)
             )
-            .order_by(Reminder.due_at)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     lines: list[str] = []
     title_name = html.escape(client.name or "—")
@@ -236,9 +244,7 @@ async def cmd_suggest(
     pending = await message.answer("⏳ Генерирую варианты ответа...")
 
     try:
-        client, variants = await suggest_reply_for_client(
-            session, manager=manager, slug=slug
-        )
+        client, variants = await suggest_reply_for_client(session, manager=manager, slug=slug)
     except Exception:
         await pending.edit_text("❌ Не удалось получить варианты ответа.")
         raise
@@ -252,15 +258,12 @@ async def cmd_suggest(
         )
         return
 
-    header = (
-        f"💡 <b>Варианты ответа для</b> <code>{html.escape(client.slug)}</code>"
-    )
+    header = f"💡 <b>Варианты ответа для</b> <code>{html.escape(client.slug)}</code>"
     blocks: list[str] = [header]
     for variant in variants:
         title = VARIANT_LABEL_TITLES.get(variant["label"], variant["label"].title())
         blocks.append(
-            f"\n📌 <b>{html.escape(title)}</b>\n"
-            f"<code>{html.escape(variant['text'])}</code>"
+            f"\n📌 <b>{html.escape(title)}</b>\n<code>{html.escape(variant['text'])}</code>"
         )
     await pending.edit_text("\n".join(blocks))
 
@@ -344,10 +347,7 @@ async def cmd_clients_no_tg(
     rows = (await session.execute(stmt)).all()
 
     if not rows:
-        await message.answer(
-            "Клиентов вне Telegram пока нет.\n\n"
-            "Создать: <code>/add_client</code>"
-        )
+        await message.answer("Клиентов вне Telegram пока нет.\n\nСоздать: <code>/add_client</code>")
         return
 
     lines = ["<b>Клиенты вне Telegram:</b>"]
@@ -437,16 +437,12 @@ async def cmd_done(
         await message.answer("Использование: <code>/done &lt;id&gt;</code>")
         return
 
-    result = await find_reminder_by_short_id(
-        session, user_id=manager.id, short_id=short
-    )
+    result = await find_reminder_by_short_id(session, user_id=manager.id, short_id=short)
     if result is None:
         await message.answer(f"Напоминание <code>{html.escape(short)}</code> не найдено.")
         return
     if result == "ambiguous":
-        await message.answer(
-            "Несколько напоминаний начинаются на этот префикс. Уточни id."
-        )
+        await message.answer("Несколько напоминаний начинаются на этот префикс. Уточни id.")
         return
 
     await mark_done(session, result)

@@ -6,9 +6,8 @@ from typing import Any
 from src.ai.client import ai_client, extract_tool_input
 from src.ai.prompts import RESPONDER_SYSTEM_PROMPT
 from src.config import settings
-from src.db.models import Client, ClientProfile
+from src.db.models import Client, ClientProfile, MessageDirection
 from src.db.models import Message as MessageModel
-from src.db.models import MessageDirection
 from src.utils.logger import logger
 
 VARIANT_LABELS = ("formal", "friendly", "closing")

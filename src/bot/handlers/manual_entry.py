@@ -89,9 +89,7 @@ def _source_keyboard(prefix: str) -> Any:
     return kb.as_markup()
 
 
-async def _resolve_client_by_slug(
-    session: AsyncSession, manager: User, slug: str
-) -> Client | None:
+async def _resolve_client_by_slug(session: AsyncSession, manager: User, slug: str) -> Client | None:
     return await session.scalar(
         select(Client).where(Client.org_id == manager.org_id, Client.slug == slug)
     )
@@ -141,9 +139,7 @@ async def add_client_name(message: TgMessage, state: FSMContext) -> None:
     await message.answer("Тип бизнеса:", reply_markup=_business_type_keyboard())
 
 
-@router.callback_query(
-    AddClientStates.waiting_business_type, F.data.startswith("add_client_bt:")
-)
+@router.callback_query(AddClientStates.waiting_business_type, F.data.startswith("add_client_bt:"))
 async def add_client_business_type(callback: CallbackQuery, state: FSMContext) -> None:
     bt_value = callback.data.split(":", 1)[1]
     try:
@@ -243,16 +239,13 @@ async def _start_manual_message(
     slug = (command.args or "").strip()
     cmd_name = "note" if direction == MessageDirection.IN else "sent"
     if not slug:
-        await message.answer(
-            f"Использование: <code>/{cmd_name} &lt;slug&gt;</code>"
-        )
+        await message.answer(f"Использование: <code>/{cmd_name} &lt;slug&gt;</code>")
         return
 
     client = await _resolve_client_by_slug(session, manager, slug)
     if client is None:
         await message.answer(
-            f"Клиент <code>{html.escape(slug)}</code> не найден. "
-            f"Создать: <code>/add_client</code>."
+            f"Клиент <code>{html.escape(slug)}</code> не найден. Создать: <code>/add_client</code>."
         )
         return
 
@@ -265,9 +258,7 @@ async def _start_manual_message(
 
     prefix = f"manual_src_{cmd_name}"
     prompt = (
-        "Откуда сообщение клиента?"
-        if direction == MessageDirection.IN
-        else "Куда ты отправил?"
+        "Откуда сообщение клиента?" if direction == MessageDirection.IN else "Куда ты отправил?"
     )
     await message.answer(
         f"{prompt}\n\nКлиент: <b>{html.escape(client.name or client.slug)}</b>",
@@ -327,8 +318,7 @@ async def on_manual_source(callback: CallbackQuery, state: FSMContext) -> None:
 
     if direction == MessageDirection.IN and source == MessageSource.MANUAL_SCREENSHOT:
         hint = (
-            "Отправь скрин сообщения клиента — распознаю текст и сохраню. "
-            "Можно и просто текстом."
+            "Отправь скрин сообщения клиента — распознаю текст и сохраню. Можно и просто текстом."
         )
     elif direction == MessageDirection.IN and source == MessageSource.EMAIL:
         hint = "Скопируй сюда текст письма клиента (или скрин)."
@@ -339,9 +329,7 @@ async def on_manual_source(callback: CallbackQuery, state: FSMContext) -> None:
 
     if callback.message is not None:
         label = SOURCE_LABELS[source]
-        await callback.message.edit_text(
-            f"Источник: <b>{html.escape(label)}</b>"
-        )
+        await callback.message.edit_text(f"Источник: <b>{html.escape(label)}</b>")
         await callback.message.answer(hint + "\n\n/cancel — отмена.")
     await callback.answer()
 
@@ -403,9 +391,7 @@ async def on_manual_content(
     elif message.text:
         text = message.text.strip()
     else:
-        await message.answer(
-            "Поддерживается только текст или фото. Попробуй ещё раз или /cancel."
-        )
+        await message.answer("Поддерживается только текст или фото. Попробуй ещё раз или /cancel.")
         return
 
     conversation = await resolve_or_create_conversation(
@@ -451,9 +437,7 @@ async def on_manual_content(
             f"{preview_html}\n\n"
             "Запускаю анализ и обновление профиля..."
         )
-        asyncio.create_task(
-            process_inbound_message(stored.id, bot, update_profile_after=True)
-        )
+        asyncio.create_task(process_inbound_message(stored.id, bot, update_profile_after=True))
     else:
         await message.answer(
             f"✅ Записал отправленное клиенту <b>{html.escape(client.name or client.slug)}</b>:\n"

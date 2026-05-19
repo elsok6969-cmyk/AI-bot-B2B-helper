@@ -25,6 +25,8 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "freezegun>=1.5",
+    "pre-commit>=3.5",
     "ruff>=0.5.0",
     "mypy>=1.10.0",
 ]
@@ -43,7 +45,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM"]
-ignore = ["E501"]
+# UP042: enum.StrEnum suggestion — keeping `str, enum.Enum` for SQLAlchemy
+#        native enum compatibility across the codebase.
+ignore = ["E501", "UP042"]
 
 [tool.ruff.lint.per-file-ignores]
 "migrations/*" = ["E", "F", "N"]
@@ -56,4 +60,6 @@ plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]

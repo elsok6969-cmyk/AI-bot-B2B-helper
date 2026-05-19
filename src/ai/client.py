@@ -38,9 +38,12 @@ def _compute_cost(model: str, input_tokens: int, output_tokens: int) -> Decimal:
 
 class AIClient:
     def __init__(self) -> None:
+        # max_retries=3 enables the SDK's built-in exponential backoff for
+        # 429 / 5xx; timeout=60s keeps a single call from hanging the bot loop.
         self._client = AsyncAnthropic(
             api_key=settings.anthropic_api_key.get_secret_value(),
             max_retries=3,
+            timeout=60.0,
         )
 
     async def call(

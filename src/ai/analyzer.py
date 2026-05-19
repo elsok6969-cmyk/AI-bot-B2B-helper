@@ -69,7 +69,7 @@ async def analyze_inbound(
         "Контекст переписки (последние сообщения, по времени):\n"
         f"{_format_context(context)}\n\n"
         "Последнее входящее сообщение для анализа:\n"
-        f"\"{(message.text or '').strip()}\""
+        f'"{(message.text or "").strip()}"'
     )
 
     response = await ai_client.call(

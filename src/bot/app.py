@@ -2,6 +2,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
+from src.bot.errors import on_error
 from src.bot.handlers import (
     business_connection,
     business_messages,
@@ -36,5 +37,7 @@ def create_dispatcher() -> Dispatcher:
     dp.include_router(manual_entry.router)
     dp.include_router(business_connection.router)
     dp.include_router(business_messages.router)
+
+    dp.errors.register(on_error)
 
     return dp

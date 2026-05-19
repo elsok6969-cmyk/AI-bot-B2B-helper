@@ -23,9 +23,7 @@ async def on_business_connection(
     event: BusinessConnection,
     session: AsyncSession,
 ) -> None:
-    user = await session.scalar(
-        select(User).where(User.telegram_user_id == event.user.id)
-    )
+    user = await session.scalar(select(User).where(User.telegram_user_id == event.user.id))
     if user is None:
         logger.warning(
             "BusinessConnection from unregistered user (tg_id={}, connection_id={})",

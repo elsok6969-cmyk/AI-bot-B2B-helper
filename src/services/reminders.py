@@ -118,12 +118,16 @@ async def find_reminder_by_short_id(
     if len(prefix) < 4:
         return None
     rows = (
-        await session.execute(
-            select(Reminder)
-            .where(Reminder.user_id == user_id)
-            .order_by(Reminder.created_at.desc())
+        (
+            await session.execute(
+                select(Reminder)
+                .where(Reminder.user_id == user_id)
+                .order_by(Reminder.created_at.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     matches = [r for r in rows if str(r.id).lower().startswith(prefix)]
     if not matches:
         return None

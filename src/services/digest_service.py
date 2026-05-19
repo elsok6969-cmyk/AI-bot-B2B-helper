@@ -77,9 +77,7 @@ async def _needs_reply(session: AsyncSession, manager: User) -> list[Client]:
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def _cold_clients(
-    session: AsyncSession, manager: User, *, now: datetime
-) -> list[Client]:
+async def _cold_clients(session: AsyncSession, manager: User, *, now: datetime) -> list[Client]:
     cutoff = now - _COLD_AFTER
     stmt = (
         select(Client)
@@ -95,9 +93,7 @@ async def _cold_clients(
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def _hot_signals(
-    session: AsyncSession, manager: User, *, now: datetime
-) -> list[HotSignal]:
+async def _hot_signals(session: AsyncSession, manager: User, *, now: datetime) -> list[HotSignal]:
     since = now - _HOT_WINDOW
     stmt = (
         select(MessageModel, Client)
@@ -211,17 +207,12 @@ def format_digest_html(digest: Digest) -> str:
         lines.append("")
 
     if digest.today_reminders:
-        lines.append(
-            f"⏰ <b>Напоминания на сегодня ({len(digest.today_reminders)})</b>"
-        )
+        lines.append(f"⏰ <b>Напоминания на сегодня ({len(digest.today_reminders)})</b>")
         for reminder, c in digest.today_reminders:
             rid = short_id(reminder.id)
             cname = html.escape(c.name or c.slug)
             txt = html.escape(reminder_text(reminder))
-            lines.append(
-                f"• <code>{rid}</code> {_fmt_dt(reminder.due_at)} — {cname}\n"
-                f"  «{txt}»"
-            )
+            lines.append(f"• <code>{rid}</code> {_fmt_dt(reminder.due_at)} — {cname}\n  «{txt}»")
         lines.append("")
 
     if digest.is_empty():

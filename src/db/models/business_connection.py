@@ -17,7 +17,9 @@ if TYPE_CHECKING:
 class BusinessConnection(Base):
     __tablename__ = "business_connections"
     __table_args__ = (
-        UniqueConstraint("user_id", "connection_id", name="uq_business_connections_user_connection"),
+        UniqueConstraint(
+            "user_id", "connection_id", name="uq_business_connections_user_connection"
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)

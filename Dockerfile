@@ -38,7 +38,11 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --chown=app:app src ./src
 COPY --chown=app:app alembic.ini ./
 COPY --chown=app:app migrations ./migrations
+COPY --chown=app:app entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 USER app
 
-CMD ["python", "-m", "src.main"]
+EXPOSE 8080
+
+ENTRYPOINT ["./entrypoint.sh"]

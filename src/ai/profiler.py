@@ -10,9 +10,8 @@ from sqlalchemy.orm import selectinload
 from src.ai.client import ai_client, extract_tool_input
 from src.ai.prompts import PROFILER_SYSTEM_PROMPT
 from src.config import settings
-from src.db.models import Client, ClientProfile, Conversation
+from src.db.models import Client, ClientProfile, Conversation, MessageDirection
 from src.db.models import Message as MessageModel
-from src.db.models import MessageDirection
 from src.utils.logger import logger
 
 _MAX_HISTORY = 50
