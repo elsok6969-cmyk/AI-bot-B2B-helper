@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.ai.analyzer import analyze_inbound
+from src.ai.profiler import update_profile
 from src.ai.responder import suggest_reply
 from src.db.models import Client, Conversation
 from src.db.models import Message as MessageModel
@@ -57,11 +58,19 @@ def _format_alert(client: Client, msg: MessageModel, analysis: dict) -> str:
     return "\n".join(lines)
 
 
-async def process_inbound_message(message_id: UUID, bot: Bot) -> None:
+async def process_inbound_message(
+    message_id: UUID,
+    bot: Bot,
+    *,
+    update_profile_after: bool = False,
+) -> None:
     """AI pipeline for a newly-stored inbound message.
 
     Runs the Haiku classifier, persists its output to messages.analysis,
-    and DMs the manager when urgency=high.
+    and DMs the manager when urgency=high. If ``update_profile_after`` is
+    set, also refreshes the client's profile after analysis — used by
+    the manual /note path where every entry is curated input worth
+    folding into the profile right away.
     """
     try:
         async with SessionLocal() as session:
@@ -109,6 +118,15 @@ async def process_inbound_message(message_id: UUID, bot: Bot) -> None:
                 except Exception:
                     logger.exception(
                         "Failed to deliver high-urgency alert for client {}", client.slug
+                    )
+
+            if update_profile_after:
+                try:
+                    await update_profile(session, client)
+                except Exception:
+                    logger.exception(
+                        "Profile refresh after manual /note failed for client {}",
+                        client.slug,
                     )
     except Exception:
         logger.exception("AI pipeline failed for message {}", message_id)

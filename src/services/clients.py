@@ -5,7 +5,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import Client, Conversation, ConversationPlatform
+from src.db.models import (
+    BusinessType,
+    Client,
+    Conversation,
+    ConversationPlatform,
+)
 from src.utils.slug import slugify
 
 
@@ -107,3 +112,34 @@ async def resolve_or_create_conversation(
     session.add(conversation)
     await session.flush()
     return conversation
+
+
+async def create_manual_client(
+    session: AsyncSession,
+    org_id: UUID,
+    *,
+    name: str,
+    owner_user_id: UUID,
+    business_type: BusinessType = BusinessType.UNKNOWN,
+    est_volume: int | None = None,
+    interest_categories: list[str] | None = None,
+) -> Client:
+    """Create a Client without a Telegram identity (manual / non-TG channel)."""
+    name = name.strip()
+    base_slug = slugify(name)
+    slug = await _unique_slug(session, org_id, base_slug)
+
+    client = Client(
+        org_id=org_id,
+        telegram_user_id=None,
+        telegram_username=None,
+        name=name,
+        slug=slug,
+        business_type=business_type,
+        est_volume=est_volume,
+        interest_categories=interest_categories or [],
+        owner_user_id=owner_user_id,
+    )
+    session.add(client)
+    await session.flush()
+    return client

@@ -312,3 +312,41 @@ async def cmd_profile(
     lines.append(f"<i>Обновлено: {_fmt_dt(profile.updated_at)}</i>")
 
     await message.answer("\n".join(lines))
+
+
+@router.message(Command("clients_no_tg"))
+async def cmd_clients_no_tg(
+    message: TgMessage,
+    manager: User,
+    session: AsyncSession,
+) -> None:
+    stmt = (
+        select(Client, func.count(MessageModel.id).label("msg_count"))
+        .select_from(Client)
+        .outerjoin(Conversation, Conversation.client_id == Client.id)
+        .outerjoin(MessageModel, MessageModel.conversation_id == Conversation.id)
+        .where(
+            Client.org_id == manager.org_id,
+            Client.telegram_user_id.is_(None),
+        )
+        .group_by(Client.id)
+        .order_by(Client.last_touch_at.is_(None), Client.last_touch_at.desc())
+    )
+    rows = (await session.execute(stmt)).all()
+
+    if not rows:
+        await message.answer(
+            "Клиентов вне Telegram пока нет.\n\n"
+            "Создать: <code>/add_client</code>"
+        )
+        return
+
+    lines = ["<b>Клиенты вне Telegram:</b>"]
+    for client, msg_count in rows:
+        name = html.escape(client.name or client.slug)
+        slug = html.escape(client.slug)
+        lines.append(
+            f"• <code>{slug}</code> — {name} | сообщений: {msg_count} | "
+            f"last: {_fmt_dt(client.last_touch_at)}"
+        )
+    await message.answer("\n".join(lines))
