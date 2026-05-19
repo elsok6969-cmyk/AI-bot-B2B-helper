@@ -21,8 +21,11 @@ Telegram Business API with multi-tenant support (organization → managers → c
    cp .env.example .env
    ```
 
-   Required: `BOT_TOKEN`, `ANTHROPIC_API_KEY`, `OWNER_TELEGRAM_ID`,
-   `POSTGRES_PASSWORD` (align `DATABASE_URL` if you change the user/password).
+   Required: `BOT_TOKEN`, `OWNER_TELEGRAM_ID`, `POSTGRES_PASSWORD` (align
+   `DATABASE_URL` if you change the user/password), plus the API key for
+   your chosen `AI_PROVIDER`: `ANTHROPIC_API_KEY` for production, or
+   `KIMI_API_KEY` (with `AI_PROVIDER=kimi`) for cheap testing — see
+   [Testing with Kimi](#testing-with-kimi-instead-of-anthropic).
 
 2. Build and start the stack — the entrypoint runs `alembic upgrade head`
    automatically before starting the bot:
@@ -92,6 +95,44 @@ Each manager does this on their own phone:
 
 The bot will start receiving `business_connection` updates immediately and
 record any new client chats as messages with `source=tg_business`.
+
+## Testing with Kimi instead of Anthropic
+
+Anthropic credits aren't cheap. For end-to-end testing you can switch the
+bot to [Moonshot AI's Kimi](https://platform.moonshot.ai/) — same code
+path, OpenAI-compatible API, an order of magnitude cheaper. The four AI
+features (analyzer, responder, profiler, OCR) all run through the same
+`AIClient`; the only thing that changes is the provider behind it.
+
+In `.env`:
+
+```ini
+AI_PROVIDER=kimi
+KIMI_API_KEY=sk-...                # from https://platform.moonshot.ai/
+# Optional — defaults shown:
+KIMI_BASE_URL=https://api.moonshot.ai/v1
+KIMI_MODEL_FAST=moonshot-v1-8k
+KIMI_MODEL_SMART=kimi-k2-0905-preview
+KIMI_MODEL_VISION=moonshot-v1-32k-vision-preview
+```
+
+Leave `ANTHROPIC_API_KEY` blank — only the active provider's key is
+required. Re-build and restart:
+
+```bash
+docker compose up -d --build
+docker compose logs -f app | grep "AI provider"  # should print: AI provider: kimi @ https://api.moonshot.ai/v1
+```
+
+When you're happy with the smoke test, flip `AI_PROVIDER=anthropic` and
+restart for the production run.
+
+> Notes: tool-call reliability and Russian language quality on Kimi are
+> good but not identical to Claude — use Kimi for plumbing/UX testing,
+> not for final tuning of prompts. The `kimi-k2-0905-preview` SMART
+> model and `moonshot-v1-*-vision-preview` are flagged as preview by
+> Moonshot, so model IDs may shift; check the Moonshot console if a
+> request 404s.
 
 ## Viewing logs
 

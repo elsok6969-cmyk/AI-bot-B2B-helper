@@ -74,7 +74,7 @@ async def analyze_inbound(
 
     response = await ai_client.call(
         request_type="analyze_inbound",
-        model=settings.claude_haiku_model,
+        model=settings.fast_model,
         system=[
             {
                 "type": "text",

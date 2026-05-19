@@ -20,7 +20,7 @@ async def ocr_image(image_bytes: bytes, media_type: str) -> str:
     img_b64 = base64.standard_b64encode(image_bytes).decode("ascii")
     response = await ai_client.call(
         request_type="ocr",
-        model=settings.claude_sonnet_model,
+        model=settings.vision_model,
         system=_OCR_SYSTEM,
         messages=[
             {

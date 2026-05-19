@@ -93,7 +93,7 @@ async def suggest_reply(
 
     response = await ai_client.call(
         request_type="suggest_reply",
-        model=settings.claude_sonnet_model,
+        model=settings.smart_model,
         system=[
             {
                 "type": "text",

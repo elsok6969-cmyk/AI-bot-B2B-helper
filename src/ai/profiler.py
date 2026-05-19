@@ -106,7 +106,7 @@ async def update_profile(session: AsyncSession, client: Client) -> ClientProfile
 
     response = await ai_client.call(
         request_type="update_profile",
-        model=settings.claude_sonnet_model,
+        model=settings.smart_model,
         system=[
             {
                 "type": "text",
