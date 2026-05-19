@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import BusinessType, Client
+from src.db.models import BusinessType, Client, User
 from src.services.clients import (
     create_manual_client,
     resolve_or_create_client,
@@ -14,7 +15,9 @@ from src.services.clients import (
 
 
 @pytest.mark.asyncio
-async def test_resolve_or_create_client_dedups_by_tg_id(session, manager):
+async def test_resolve_or_create_client_dedups_by_tg_id(
+    session: AsyncSession, manager: User
+) -> None:
     first = await resolve_or_create_client(
         session,
         manager.org_id,
@@ -43,7 +46,9 @@ async def test_resolve_or_create_client_dedups_by_tg_id(session, manager):
 
 
 @pytest.mark.asyncio
-async def test_resolve_or_create_client_updates_username(session, manager):
+async def test_resolve_or_create_client_updates_username(
+    session: AsyncSession, manager: User
+) -> None:
     client = await resolve_or_create_client(
         session,
         manager.org_id,
@@ -70,7 +75,7 @@ async def test_resolve_or_create_client_updates_username(session, manager):
 
 
 @pytest.mark.asyncio
-async def test_slug_collision_appends_suffix(session, manager):
+async def test_slug_collision_appends_suffix(session: AsyncSession, manager: User) -> None:
     """Both auto-resolved and manual-creation paths must respect (org_id, slug)."""
     a = await resolve_or_create_client(
         session,
@@ -105,7 +110,7 @@ async def test_slug_collision_appends_suffix(session, manager):
 
 
 @pytest.mark.asyncio
-async def test_create_manual_client_has_no_tg_id(session, manager):
+async def test_create_manual_client_has_no_tg_id(session: AsyncSession, manager: User) -> None:
     client = await create_manual_client(
         session,
         manager.org_id,
@@ -127,7 +132,7 @@ async def test_create_manual_client_has_no_tg_id(session, manager):
 
 
 @pytest.mark.asyncio
-async def test_resolve_or_create_conversation_dedups(session, manager):
+async def test_resolve_or_create_conversation_dedups(session: AsyncSession, manager: User) -> None:
     client = await resolve_or_create_client(
         session,
         manager.org_id,

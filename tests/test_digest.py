@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import (
     BusinessType,
@@ -15,6 +17,7 @@ from src.db.models import (
     Reminder,
     ReminderKind,
     ReminderStatus,
+    User,
 )
 from src.db.models import Message as MessageModel
 from src.services.clients import create_manual_client, resolve_or_create_conversation
@@ -22,7 +25,10 @@ from src.services.digest_service import collect_digest, format_digest_html
 
 
 @pytest.mark.asyncio
-async def test_digest_categorizes_clients_into_buckets(session, manager):
+@freeze_time("2026-05-19 12:00:00+00:00")  # noon UTC = 15:00 Moscow — well inside "today"
+async def test_digest_categorizes_clients_into_buckets(
+    session: AsyncSession, manager: User
+) -> None:
     now = datetime.now(UTC)
 
     c_reply = await create_manual_client(
@@ -82,10 +88,8 @@ async def test_digest_categorizes_clients_into_buckets(session, manager):
     c_quiet.last_outbound_at = now - timedelta(hours=1)
     c_quiet.last_touch_at = now - timedelta(hours=1)
 
-    # A reminder due today
-    due_today = (now.replace(hour=23, minute=0, second=0, microsecond=0)) - timedelta(hours=8)
-    if due_today < now:
-        due_today = now + timedelta(hours=1)
+    # A reminder due later today in Moscow (frozen time → deterministic).
+    due_today = now + timedelta(hours=2)
     reminder = Reminder(
         client_id=c_reply.id,
         user_id=manager.id,
@@ -121,7 +125,9 @@ async def test_digest_categorizes_clients_into_buckets(session, manager):
 
 
 @pytest.mark.asyncio
-async def test_digest_skips_hot_signal_with_subsequent_outbound(session, manager):
+async def test_digest_skips_hot_signal_with_subsequent_outbound(
+    session: AsyncSession, manager: User
+) -> None:
     """If the manager already replied after the high-urgency message, drop it."""
     now = datetime.now(UTC)
 
@@ -159,7 +165,7 @@ async def test_digest_skips_hot_signal_with_subsequent_outbound(session, manager
 
 
 @pytest.mark.asyncio
-async def test_digest_is_empty_for_pristine_manager(session, manager):
+async def test_digest_is_empty_for_pristine_manager(session: AsyncSession, manager: User) -> None:
     digest = await collect_digest(session, manager)
     assert digest.is_empty()
     assert "Хорошего дня" in format_digest_html(digest)

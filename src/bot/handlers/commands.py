@@ -441,7 +441,8 @@ async def cmd_done(
     if result is None:
         await message.answer(f"Напоминание <code>{html.escape(short)}</code> не найдено.")
         return
-    if result == "ambiguous":
+    if isinstance(result, str):
+        # The only non-Reminder return value is the sentinel "ambiguous".
         await message.answer("Несколько напоминаний начинаются на этот префикс. Уточни id.")
         return
 

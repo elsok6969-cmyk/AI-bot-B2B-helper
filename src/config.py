@@ -66,4 +66,4 @@ class Settings(BaseSettings):
         return self.claude_sonnet_model
 
 
-settings = Settings()  # type: ignore[call-arg]
+settings = Settings()

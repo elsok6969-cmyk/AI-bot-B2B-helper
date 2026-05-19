@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+from typing import Any, cast
 from uuid import UUID
 
 from aiogram import Bot
@@ -34,7 +35,7 @@ async def _load_recent_messages(
     return list(reversed(rows[:limit]))
 
 
-def _format_alert(client: Client, msg: MessageModel, analysis: dict) -> str:
+def _format_alert(client: Client, msg: MessageModel, analysis: dict[str, Any]) -> str:
     name = html.escape(client.name or client.slug)
     slug = html.escape(client.slug)
     text_preview = html.escape((msg.text or "").strip()[:400])
@@ -165,7 +166,10 @@ async def _resolve_conversation_id(
         )
     )
     if exact is not None:
-        return exact
-    return await session.scalar(
-        select(Conversation.id).where(Conversation.client_id == client.id).limit(1)
+        return cast("UUID | None", exact)
+    return cast(
+        "UUID | None",
+        await session.scalar(
+            select(Conversation.id).where(Conversation.client_id == client.id).limit(1)
+        ),
     )

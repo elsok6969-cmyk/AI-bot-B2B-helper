@@ -6,8 +6,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import ReminderKind, ReminderStatus
+from src.db.models import ReminderKind, ReminderStatus, User
 from src.services.clients import create_manual_client
 from src.services.reminders import (
     create_reminder,
@@ -22,7 +23,7 @@ from src.services.reminders import (
 )
 
 
-def test_parse_when_handles_russian_phrasings():
+def test_parse_when_handles_russian_phrasings() -> None:
     with freeze_time("2026-05-19 12:00:00+03:00"):
         assert parse_when("завтра 10:00") is not None
         assert parse_when("через 3 дня") is not None
@@ -30,14 +31,14 @@ def test_parse_when_handles_russian_phrasings():
         assert parse_when("полный бред") is None
 
 
-def test_parse_remind_args_requires_text():
+def test_parse_remind_args_requires_text() -> None:
     with freeze_time("2026-05-19 12:00:00+03:00"):
         # No text after the time expression
         result = parse_remind_args("vasya завтра 10:00")
         assert isinstance(result, str) and "текста" in result.lower()
 
 
-def test_parse_remind_args_rejects_past_time():
+def test_parse_remind_args_rejects_past_time() -> None:
     with freeze_time("2026-05-19 12:00:00+03:00"):
         # Trying a past datetime expression — dateparser actually picks the
         # next future occurrence for relative words, so we test the explicit
@@ -46,7 +47,11 @@ def test_parse_remind_args_rejects_past_time():
         assert isinstance(result, str) and "прошло" in result.lower()
 
 
-def test_parse_remind_args_returns_tuple_on_success():
+def test_parse_remind_args_returns_tuple_on_success() -> None:
+    from zoneinfo import ZoneInfo
+
+    from src.config import settings
+
     with freeze_time("2026-05-19 12:00:00+03:00"):
         ok = parse_remind_args("vasya завтра 10:00 уточнить объёмы и категории")
         assert not isinstance(ok, str)
@@ -54,12 +59,15 @@ def test_parse_remind_args_returns_tuple_on_success():
         assert slug == "vasya"
         assert "уточнить объёмы" in text
         assert due_at.tzinfo is not None
-        # Should be tomorrow at 10:00 Moscow → 07:00 UTC
-        assert due_at.hour == 7
+        # Verify the wall-clock time matches "tomorrow 10:00" in settings.tz,
+        # regardless of which timezone the host runs in. (dateparser converts
+        # to settings.tz internally; parse_when then returns UTC.)
+        local = due_at.astimezone(ZoneInfo(settings.tz))
+        assert (local.hour, local.minute) == (10, 0)
 
 
 @pytest.mark.asyncio
-async def test_create_and_close_reminder(session, manager):
+async def test_create_and_close_reminder(session: AsyncSession, manager: User) -> None:
     client = await create_manual_client(
         session, manager.org_id, name="Клиент", owner_user_id=manager.id
     )
@@ -94,7 +102,9 @@ async def test_create_and_close_reminder(session, manager):
 
 
 @pytest.mark.asyncio
-async def test_find_due_reminders_only_returns_past_pending(session, manager):
+async def test_find_due_reminders_only_returns_past_pending(
+    session: AsyncSession, manager: User
+) -> None:
     client = await create_manual_client(
         session, manager.org_id, name="Клиент", owner_user_id=manager.id
     )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import or_, select
@@ -110,7 +111,7 @@ async def _hot_signals(session: AsyncSession, manager: User, *, now: datetime) -
     )
     rows = (await session.execute(stmt)).all()
     out: list[HotSignal] = []
-    seen_clients: set = set()
+    seen_clients: set[UUID] = set()
     for msg, client in rows:
         if client.id in seen_clients:
             continue

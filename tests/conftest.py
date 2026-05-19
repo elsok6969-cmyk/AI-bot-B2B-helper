@@ -27,10 +27,15 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test")
 os.environ.setdefault("OWNER_TELEGRAM_ID", "1")
 os.environ.setdefault("POSTGRES_PASSWORD", "test")
 
+from typing import TYPE_CHECKING  # noqa: E402
+
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
+
+if TYPE_CHECKING:
+    from src.db.models import User
 
 _DATA_TABLES = (
     "ai_logs",
@@ -77,7 +82,7 @@ async def session() -> AsyncIterator[AsyncSession]:
 
 
 @pytest_asyncio.fixture
-async def manager(session: AsyncSession):
+async def manager(session: AsyncSession) -> User:
     """A seeded Organization + owner User."""
     from src.db.models import Organization, User, UserRole
 

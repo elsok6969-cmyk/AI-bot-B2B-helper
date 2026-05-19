@@ -7,7 +7,7 @@ from aiogram.exceptions import TelegramAPIError
 from sqlalchemy import select
 
 from src.ai.profiler import update_profile
-from src.db.models import Client, ClientProfile, ReminderStatus, User
+from src.db.models import Client, ClientProfile, Reminder, ReminderStatus, User
 from src.db.session import SessionLocal
 from src.scheduler.context import get_bot
 from src.services.digest_service import collect_digest, format_digest_html
@@ -63,7 +63,7 @@ async def daily_digest_job() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _format_reminder_alert(reminder, client) -> str:
+def _format_reminder_alert(reminder: Reminder, client: Client) -> str:
     text = html.escape(reminder_text(reminder) or "(без описания)")
     name = html.escape(client.name or client.slug)
     slug = html.escape(client.slug)

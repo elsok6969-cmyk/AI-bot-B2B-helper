@@ -32,7 +32,8 @@ def parse_when(when_str: str) -> datetime | None:
     )
     if parsed is None:
         return None
-    return parsed.astimezone(UTC)
+    result: datetime = parsed.astimezone(UTC)
+    return result
 
 
 def parse_remind_args(args: str) -> tuple[str, datetime, str] | str:

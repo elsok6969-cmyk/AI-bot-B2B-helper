@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -13,7 +14,13 @@ from src.db.models import Message as MessageModel
 from src.db.models import MessageDirection, MessageSource
 
 
-def _fake_anthropic_message(content_blocks, *, model="claude-haiku-4-5", in_t=100, out_t=20):
+def _fake_anthropic_message(
+    content_blocks: list[SimpleNamespace],
+    *,
+    model: str = "claude-haiku-4-5",
+    in_t: int = 100,
+    out_t: int = 20,
+) -> SimpleNamespace:
     usage = SimpleNamespace(
         input_tokens=in_t,
         output_tokens=out_t,
@@ -23,7 +30,7 @@ def _fake_anthropic_message(content_blocks, *, model="claude-haiku-4-5", in_t=10
     return SimpleNamespace(content=content_blocks, usage=usage, model=model, stop_reason="end_turn")
 
 
-def _tool_use_response(tool_input: dict):
+def _tool_use_response(tool_input: dict[str, Any]) -> SimpleNamespace:
     return _fake_anthropic_message(
         [SimpleNamespace(type="tool_use", name="report_analysis", input=tool_input, id="tu")]
     )
@@ -41,7 +48,7 @@ def _make_message(text: str = "когда отгрузка?") -> MessageModel:
 
 
 @pytest.mark.asyncio
-async def test_analyze_inbound_parses_tool_call():
+async def test_analyze_inbound_parses_tool_call() -> None:
     fake_input = {
         "intent": "price_request",
         "sentiment": "positive",
@@ -50,7 +57,7 @@ async def test_analyze_inbound_parses_tool_call():
     }
     msg = _make_message("Подскажите цены")
 
-    async def fake_create(**kwargs):
+    async def fake_create(**kwargs: Any) -> SimpleNamespace:
         assert kwargs["model"] == "claude-haiku-4-5"
         tools = kwargs["tools"]
         assert any(t["name"] == "report_analysis" for t in tools)
@@ -69,7 +76,7 @@ async def test_analyze_inbound_parses_tool_call():
 
 
 @pytest.mark.asyncio
-async def test_analyze_inbound_normalizes_invalid_enum_values():
+async def test_analyze_inbound_normalizes_invalid_enum_values() -> None:
     """Unknown intent / sentiment / urgency strings fall back to defaults."""
     fake_input = {
         "intent": "weather_chat",  # not in INTENT_VALUES
@@ -78,7 +85,7 @@ async def test_analyze_inbound_normalizes_invalid_enum_values():
         "suggested_action": "test",
     }
 
-    async def fake_create(**_):
+    async def fake_create(**_: Any) -> SimpleNamespace:
         return _tool_use_response(fake_input)
 
     with patch("src.ai.client.ai_client._client.messages.create", new=fake_create):
@@ -91,11 +98,11 @@ async def test_analyze_inbound_normalizes_invalid_enum_values():
 
 
 @pytest.mark.asyncio
-async def test_analyze_inbound_handles_no_tool_call():
+async def test_analyze_inbound_handles_no_tool_call() -> None:
     """If the model returns plain text instead of calling the tool, return defaults."""
     plain = _fake_anthropic_message([SimpleNamespace(type="text", text="I refuse to use the tool")])
 
-    async def fake_create(**_):
+    async def fake_create(**_: Any) -> SimpleNamespace:
         return plain
 
     with patch("src.ai.client.ai_client._client.messages.create", new=fake_create):

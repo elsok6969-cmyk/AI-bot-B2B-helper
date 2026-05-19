@@ -4,7 +4,7 @@ import asyncio
 import html
 from datetime import UTC, datetime
 from io import BytesIO
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from aiogram import Bot, F, Router
@@ -90,8 +90,11 @@ def _source_keyboard(prefix: str) -> Any:
 
 
 async def _resolve_client_by_slug(session: AsyncSession, manager: User, slug: str) -> Client | None:
-    return await session.scalar(
-        select(Client).where(Client.org_id == manager.org_id, Client.slug == slug)
+    return cast(
+        "Client | None",
+        await session.scalar(
+            select(Client).where(Client.org_id == manager.org_id, Client.slug == slug)
+        ),
     )
 
 
@@ -141,6 +144,7 @@ async def add_client_name(message: TgMessage, state: FSMContext) -> None:
 
 @router.callback_query(AddClientStates.waiting_business_type, F.data.startswith("add_client_bt:"))
 async def add_client_business_type(callback: CallbackQuery, state: FSMContext) -> None:
+    assert callback.data is not None  # enforced by F.data.startswith filter above
     bt_value = callback.data.split(":", 1)[1]
     try:
         bt = BusinessType(bt_value)
@@ -149,7 +153,7 @@ async def add_client_business_type(callback: CallbackQuery, state: FSMContext) -
         return
     await state.update_data(business_type=bt.value)
     await state.set_state(AddClientStates.waiting_volume)
-    if callback.message is not None:
+    if isinstance(callback.message, TgMessage):
         await callback.message.edit_text(
             f"Тип бизнеса: <b>{html.escape(BUSINESS_TYPE_LABELS[bt])}</b>"
         )
@@ -327,7 +331,7 @@ async def on_manual_source(callback: CallbackQuery, state: FSMContext) -> None:
     else:
         hint = "Скопируй сюда текст письма, которое ты отправил."
 
-    if callback.message is not None:
+    if isinstance(callback.message, TgMessage):
         label = SOURCE_LABELS[source]
         await callback.message.edit_text(f"Источник: <b>{html.escape(label)}</b>")
         await callback.message.answer(hint + "\n\n/cancel — отмена.")

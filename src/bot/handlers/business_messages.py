@@ -40,6 +40,10 @@ async def on_business_message(message: TgMessage, session: AsyncSession, bot: Bo
     )
     direction = MessageDirection.OUT if is_from_manager else MessageDirection.IN
 
+    client_tg_id: int
+    first_name: str | None
+    last_name: str | None
+    username: str | None
     if direction == MessageDirection.IN and message.from_user is not None:
         client_tg_id = message.from_user.id
         first_name = message.from_user.first_name
