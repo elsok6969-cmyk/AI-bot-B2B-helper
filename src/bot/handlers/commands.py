@@ -24,6 +24,15 @@ from src.db.models import (
 )
 from src.db.models import Message as MessageModel
 from src.services.ai_pipeline import suggest_reply_for_client
+from src.services.reminders import (
+    create_reminder,
+    find_reminder_by_short_id,
+    list_active_reminders,
+    mark_done,
+    parse_remind_args,
+    reminder_text,
+    short_id,
+)
 
 router = Router(name="commands")
 
@@ -350,3 +359,96 @@ async def cmd_clients_no_tg(
             f"last: {_fmt_dt(client.last_touch_at)}"
         )
     await message.answer("\n".join(lines))
+
+
+@router.message(Command("remind"))
+async def cmd_remind(
+    message: TgMessage,
+    manager: User,
+    session: AsyncSession,
+    command: CommandObject,
+) -> None:
+    parsed = parse_remind_args(command.args or "")
+    if isinstance(parsed, str):
+        await message.answer(parsed)
+        return
+    slug, due_at, text = parsed
+
+    client = await session.scalar(
+        select(Client).where(Client.org_id == manager.org_id, Client.slug == slug)
+    )
+    if client is None:
+        await message.answer(f"Клиент <code>{html.escape(slug)}</code> не найден.")
+        return
+
+    reminder = await create_reminder(
+        session,
+        client_id=client.id,
+        user_id=manager.id,
+        due_at=due_at,
+        text=text,
+    )
+    await session.commit()
+
+    name = html.escape(client.name or client.slug)
+    await message.answer(
+        f"⏰ Напоминание создано: <code>{short_id(reminder.id)}</code>\n"
+        f"Клиент: {name}\n"
+        f"Когда: <b>{_fmt_dt(reminder.due_at)}</b>\n"
+        f"Что: <i>{html.escape(text)}</i>"
+    )
+
+
+@router.message(Command("reminders"))
+async def cmd_reminders(
+    message: TgMessage,
+    manager: User,
+    session: AsyncSession,
+) -> None:
+    pairs = await list_active_reminders(session, user_id=manager.id)
+    if not pairs:
+        await message.answer("Активных напоминаний нет.")
+        return
+
+    lines = ["<b>⏰ Активные напоминания:</b>"]
+    for reminder, client in pairs:
+        rid = short_id(reminder.id)
+        cname = html.escape(client.name or client.slug)
+        slug = html.escape(client.slug)
+        body = html.escape(reminder_text(reminder))
+        marker = "✉️ отправлено" if reminder.status.value == "sent" else "⏳ ожидает"
+        lines.append(
+            f"• <code>{rid}</code> — {_fmt_dt(reminder.due_at)} | {marker}\n"
+            f"  {cname} (<code>{slug}</code>): «{body}»"
+        )
+    lines.append("\n<code>/done &lt;id&gt;</code> — закрыть напоминание")
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("done"))
+async def cmd_done(
+    message: TgMessage,
+    manager: User,
+    session: AsyncSession,
+    command: CommandObject,
+) -> None:
+    short = (command.args or "").strip()
+    if not short:
+        await message.answer("Использование: <code>/done &lt;id&gt;</code>")
+        return
+
+    result = await find_reminder_by_short_id(
+        session, user_id=manager.id, short_id=short
+    )
+    if result is None:
+        await message.answer(f"Напоминание <code>{html.escape(short)}</code> не найдено.")
+        return
+    if result == "ambiguous":
+        await message.answer(
+            "Несколько напоминаний начинаются на этот префикс. Уточни id."
+        )
+        return
+
+    await mark_done(session, result)
+    await session.commit()
+    await message.answer(f"✅ Закрыто <code>{short_id(result.id)}</code>.")

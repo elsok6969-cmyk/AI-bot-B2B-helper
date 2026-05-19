@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     claude_haiku_model: str = "claude-haiku-4-5"
     claude_sonnet_model: str = "claude-sonnet-4-5"
     profile_update_hour: int = 3
+    daily_digest_hour: int = 9
+    reminder_check_interval_minutes: int = 5
 
 
 settings = Settings()  # type: ignore[call-arg]

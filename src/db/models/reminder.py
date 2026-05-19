@@ -25,6 +25,7 @@ class ReminderKind(str, enum.Enum):
 
 class ReminderStatus(str, enum.Enum):
     PENDING = "pending"
+    SENT = "sent"
     DONE = "done"
     SNOOZED = "snoozed"
 
