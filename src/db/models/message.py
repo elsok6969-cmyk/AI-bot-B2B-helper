@@ -44,6 +44,7 @@ class Message(Base):
     )
     text: Mapped[str | None] = mapped_column(Text)
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    analysis: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

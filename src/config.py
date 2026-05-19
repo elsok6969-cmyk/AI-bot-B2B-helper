@@ -22,5 +22,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     tz: str = "Europe/Moscow"
 
+    claude_haiku_model: str = "claude-haiku-4-5"
+    claude_sonnet_model: str = "claude-sonnet-4-5"
+    profile_update_hour: int = 3
+
 
 settings = Settings()  # type: ignore[call-arg]

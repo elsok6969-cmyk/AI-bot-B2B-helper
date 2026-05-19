@@ -15,6 +15,7 @@ from src.config import settings
 from src.db.models import (
     BusinessConnection,
     Client,
+    ClientProfile,
     Conversation,
     MessageDirection,
     Reminder,
@@ -22,10 +23,17 @@ from src.db.models import (
     User,
 )
 from src.db.models import Message as MessageModel
+from src.services.ai_pipeline import suggest_reply_for_client
 
 router = Router(name="commands")
 
 DIRECTION_ARROW = {MessageDirection.IN: "←", MessageDirection.OUT: "→"}
+
+VARIANT_LABEL_TITLES = {
+    "formal": "Формальный",
+    "friendly": "Дружелюбный",
+    "closing": "Закрывающий",
+}
 
 
 def _local_tz() -> ZoneInfo:
@@ -200,5 +208,107 @@ async def cmd_client(
                 if what:
                     note = f" — {html.escape(str(what))}"
             lines.append(f"• {_fmt_dt(r.due_at)} <b>{r.kind.value}</b>{note}")
+
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("suggest"))
+async def cmd_suggest(
+    message: TgMessage,
+    manager: User,
+    session: AsyncSession,
+    command: CommandObject,
+) -> None:
+    slug = (command.args or "").strip()
+    if not slug:
+        await message.answer("Использование: <code>/suggest &lt;slug&gt;</code>")
+        return
+
+    pending = await message.answer("⏳ Генерирую варианты ответа...")
+
+    try:
+        client, variants = await suggest_reply_for_client(
+            session, manager=manager, slug=slug
+        )
+    except Exception:
+        await pending.edit_text("❌ Не удалось получить варианты ответа.")
+        raise
+
+    if client is None:
+        await pending.edit_text(f"Клиент <code>{html.escape(slug)}</code> не найден.")
+        return
+    if not variants:
+        await pending.edit_text(
+            "Не получилось сгенерировать варианты. Возможно, переписки ещё нет."
+        )
+        return
+
+    header = (
+        f"💡 <b>Варианты ответа для</b> <code>{html.escape(client.slug)}</code>"
+    )
+    blocks: list[str] = [header]
+    for variant in variants:
+        title = VARIANT_LABEL_TITLES.get(variant["label"], variant["label"].title())
+        blocks.append(
+            f"\n📌 <b>{html.escape(title)}</b>\n"
+            f"<code>{html.escape(variant['text'])}</code>"
+        )
+    await pending.edit_text("\n".join(blocks))
+
+
+@router.message(Command("profile"))
+async def cmd_profile(
+    message: TgMessage,
+    manager: User,
+    session: AsyncSession,
+    command: CommandObject,
+) -> None:
+    slug = (command.args or "").strip()
+    if not slug:
+        await message.answer("Использование: <code>/profile &lt;slug&gt;</code>")
+        return
+
+    client = await session.scalar(
+        select(Client)
+        .where(Client.org_id == manager.org_id, Client.slug == slug)
+        .options(selectinload(Client.profile))
+    )
+    if client is None:
+        await message.answer(f"Клиент <code>{html.escape(slug)}</code> не найден.")
+        return
+
+    profile: ClientProfile | None = client.profile
+    name = html.escape(client.name or client.slug)
+
+    if profile is None:
+        await message.answer(
+            f"📝 Профиль клиента {name} ещё не построен.\n"
+            "Он обновляется автоматически по расписанию после нескольких сообщений."
+        )
+        return
+
+    lines: list[str] = [
+        f"📝 <b>Профиль клиента</b> {name} (<code>{html.escape(client.slug)}</code>)",
+        "",
+    ]
+    if profile.summary:
+        lines.append(f"<b>Резюме:</b> {html.escape(profile.summary)}")
+        lines.append("")
+    if profile.pain_points:
+        lines.append("<b>Боли:</b>")
+        lines.extend(f"• {html.escape(p)}" for p in profile.pain_points)
+        lines.append("")
+    if profile.objections:
+        lines.append("<b>Возражения:</b>")
+        lines.extend(f"• {html.escape(p)}" for p in profile.objections)
+        lines.append("")
+    if profile.won_arguments:
+        lines.append("<b>Сильные аргументы:</b>")
+        lines.extend(f"• {html.escape(p)}" for p in profile.won_arguments)
+        lines.append("")
+    if profile.personal_notes:
+        lines.append(f"<b>Личные заметки:</b> {html.escape(profile.personal_notes)}")
+        lines.append("")
+    lines.append(f"<i>Обновлено: {_fmt_dt(profile.updated_at)}</i>")
 
     await message.answer("\n".join(lines))

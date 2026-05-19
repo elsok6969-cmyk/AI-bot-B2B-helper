@@ -1,15 +1,15 @@
 import asyncio
 
-from aiogram import Router
+from aiogram import Bot, Router
 from aiogram.types import Message as TgMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.ai.pipeline import process_inbound_message
 from src.db.models import BusinessConnection as BusinessConnectionModel
 from src.db.models import Message as MessageModel
 from src.db.models import MessageDirection, MessageSource
+from src.services.ai_pipeline import process_inbound_message
 from src.services.clients import resolve_or_create_client, resolve_or_create_conversation
 from src.utils.logger import logger
 
@@ -17,7 +17,7 @@ router = Router(name="business_messages")
 
 
 @router.business_message()
-async def on_business_message(message: TgMessage, session: AsyncSession) -> None:
+async def on_business_message(message: TgMessage, session: AsyncSession, bot: Bot) -> None:
     if not message.business_connection_id:
         logger.warning("business_message without business_connection_id; skipping")
         return
@@ -92,4 +92,4 @@ async def on_business_message(message: TgMessage, session: AsyncSession) -> None
     )
 
     if direction == MessageDirection.IN:
-        asyncio.create_task(process_inbound_message(stored.id))
+        asyncio.create_task(process_inbound_message(stored.id, bot))
