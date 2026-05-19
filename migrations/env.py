@@ -7,6 +7,8 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from src.config import settings
+from src.db.base import Base
+from src.db import models  # noqa: F401 - imported so all models register with Base.metadata
 
 config = context.config
 
@@ -15,7 +17,7 @@ if config.config_file_name is not None:
 
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

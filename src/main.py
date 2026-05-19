@@ -7,6 +7,7 @@ from aiogram.enums import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from src.config import settings
+from src.db.seed import ensure_owner
 from src.utils.logger import logger, setup_logger
 
 
@@ -22,6 +23,7 @@ async def run() -> None:
 
     @dp.startup()
     async def _on_startup() -> None:
+        await ensure_owner()
         scheduler.start()
         logger.info("Bot started")
 
