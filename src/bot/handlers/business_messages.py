@@ -1,5 +1,3 @@
-import asyncio
-
 from aiogram import Bot, Router
 from aiogram.types import Message as TgMessage
 from sqlalchemy import select
@@ -11,6 +9,7 @@ from src.db.models import Message as MessageModel
 from src.db.models import MessageDirection, MessageSource
 from src.services.ai_pipeline import process_inbound_message
 from src.services.clients import resolve_or_create_client, resolve_or_create_conversation
+from src.utils.bg import spawn
 from src.utils.logger import logger
 
 router = Router(name="business_messages")
@@ -107,4 +106,4 @@ async def on_business_message(message: TgMessage, session: AsyncSession, bot: Bo
     )
 
     if direction == MessageDirection.IN:
-        asyncio.create_task(process_inbound_message(stored.id, bot))
+        spawn(process_inbound_message(stored.id, bot), name=f"pipeline:{stored.id}")

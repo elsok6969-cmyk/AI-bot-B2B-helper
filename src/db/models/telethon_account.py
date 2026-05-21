@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,7 +37,7 @@ class TelethonAccount(Base):
     login_phase: Mapped[str | None] = mapped_column(String(32))  # idle|code_sent|password_needed
     phone_code_hash: Mapped[str | None] = mapped_column(String(255))
 
-    telegram_user_id: Mapped[int | None] = mapped_column()
+    telegram_user_id: Mapped[int | None] = mapped_column(BigInteger)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime] = mapped_column(

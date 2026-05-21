@@ -108,6 +108,7 @@ async def send_draft(
         raise ChannelSendError("Draft is missing client")
 
     if draft.channel == DraftChannel.TELETHON_USER:
+        from src.integrations.telethon_runtime import TelethonError
         from src.integrations.telethon_runtime import send_message as telethon_send
 
         if draft.user_id is None:
@@ -119,13 +120,18 @@ async def send_draft(
             select(TelethonAccount).where(TelethonAccount.user_id == draft.user_id)
         )
         if account is None or not account.is_authorized:
-            raise ChannelSendError("Telethon account is not authorized")
+            raise ChannelSendError("Telethon-аккаунт не подключён — иди в /telethon")
 
-        await telethon_send(
-            user_id=draft.user_id,
-            peer_id=client.telegram_user_id,
-            text=text,
-        )
+        try:
+            await telethon_send(
+                user_id=draft.user_id,
+                peer_id=client.telegram_user_id,
+                text=text,
+            )
+        except TelethonError as exc:
+            raise ChannelSendError(str(exc)) from exc
+        except Exception as exc:
+            raise ChannelSendError(f"Telethon: {exc}") from exc
         await _store_outbound(
             session,
             conversation_id=draft.conversation_id,
@@ -135,7 +141,7 @@ async def send_draft(
         )
 
     elif draft.channel == DraftChannel.EMAIL:
-        from src.integrations.mail_runtime import send_email
+        from src.integrations.mail_runtime import MailError, send_email
 
         if draft.user_id is None:
             raise ChannelSendError("Draft has no owning user for email send")
@@ -148,20 +154,39 @@ async def send_draft(
         if mailbox is None:
             raise ChannelSendError("No active mailbox configured for this user")
 
+        # Thread the reply: link to the source Message-ID so it lands in
+        # the recipient's inbox under the original conversation.
+        in_reply_to = None
+        references = None
+        src_raw = draft.source_message.raw_payload if draft.source_message else None
+        if src_raw:
+            in_reply_to = src_raw.get("message_id")
+            references = src_raw.get("references") or in_reply_to
+
         subject = draft.subject or "Re:"
-        await send_email(
-            mailbox=mailbox,
-            to_address=client.email,
-            subject=subject,
-            body=text,
-        )
+        try:
+            await send_email(
+                mailbox=mailbox,
+                to_address=client.email,
+                subject=subject,
+                body=text,
+                in_reply_to=in_reply_to,
+                references=references,
+            )
+        except MailError as exc:
+            raise ChannelSendError(str(exc)) from exc
         await _store_outbound(
             session,
             conversation_id=draft.conversation_id,
             client_id=client.id,
             text=text,
             source=MessageSource.EMAIL,
-            raw_payload={"to": client.email, "subject": subject, "from": mailbox.email},
+            raw_payload={
+                "to": client.email,
+                "subject": subject,
+                "from": mailbox.email,
+                "in_reply_to": in_reply_to,
+            },
         )
 
     elif draft.channel == DraftChannel.TG_BUSINESS:
@@ -218,16 +243,22 @@ async def send_freeform(
     )
 
     if channel == DraftChannel.TELETHON_USER:
+        from src.integrations.telethon_runtime import TelethonError
         from src.integrations.telethon_runtime import send_message as telethon_send
 
         account = await session.scalar(
             select(TelethonAccount).where(TelethonAccount.user_id == user.id)
         )
         if account is None or not account.is_authorized:
-            raise ChannelSendError("Telethon account is not authorized")
+            raise ChannelSendError("Telethon-аккаунт не подключён — иди в /telethon")
         if client.telegram_user_id is None:
-            raise ChannelSendError("Client has no telegram_user_id")
-        await telethon_send(user_id=user.id, peer_id=client.telegram_user_id, text=text)
+            raise ChannelSendError("У клиента нет Telegram ID")
+        try:
+            await telethon_send(user_id=user.id, peer_id=client.telegram_user_id, text=text)
+        except TelethonError as exc:
+            raise ChannelSendError(str(exc)) from exc
+        except Exception as exc:
+            raise ChannelSendError(f"Telethon: {exc}") from exc
         msg = await _store_outbound(
             session,
             conversation_id=conversation.id,
@@ -236,19 +267,20 @@ async def send_freeform(
             source=MessageSource.TELETHON_USER,
         )
     elif channel == DraftChannel.EMAIL:
-        from src.integrations.mail_runtime import send_email
+        from src.integrations.mail_runtime import MailError, send_email
 
         mailbox = await session.scalar(
             select(Mailbox).where(Mailbox.user_id == user.id, Mailbox.is_active.is_(True))
         )
         if mailbox is None:
-            raise ChannelSendError("No active mailbox")
+            raise ChannelSendError("Ящик не подключён — иди в /mail")
         if not client.email:
-            raise ChannelSendError("Client has no email")
+            raise ChannelSendError("У клиента нет email")
         subj = subject or "Сообщение"
-        await send_email(
-            mailbox=mailbox, to_address=client.email, subject=subj, body=text
-        )
+        try:
+            await send_email(mailbox=mailbox, to_address=client.email, subject=subj, body=text)
+        except MailError as exc:
+            raise ChannelSendError(str(exc)) from exc
         msg = await _store_outbound(
             session,
             conversation_id=conversation.id,

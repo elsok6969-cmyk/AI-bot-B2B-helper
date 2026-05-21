@@ -125,18 +125,15 @@ async def mail_save(
 
 @router.post("/poll")
 async def mail_poll_now(session: SessionDep, user: UserDep) -> RedirectResponse:
-    import asyncio
-
     from src.integrations.mail_runtime import poll_all_mailboxes
     from src.scheduler.context import get_bot
+    from src.utils.bg import spawn
 
-    # Dispatch in background so the UI redirects immediately. The user
-    # refreshes /mail / / to see new messages.
     try:
         bot = get_bot()
     except RuntimeError:
         bot = None
-    asyncio.create_task(poll_all_mailboxes(bot))
+    spawn(poll_all_mailboxes(bot), name="manual_mail_poll")
 
     resp = RedirectResponse(url="/mail", status_code=303)
     attach_flash_to_redirect(resp, "Опрос почты запущен в фоне. Обнови страницу через минуту.", level="info")

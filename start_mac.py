@@ -261,6 +261,19 @@ def main() -> int:
     db_pass = env_vars.get("POSTGRES_PASSWORD", "mynota")
     db_name = env_vars.get("POSTGRES_DB", "mynota")
 
+    # Safety: identifiers must be alphanumeric/underscore. Passwords get
+    # SQL-quote-escaped before interpolation. Without this, a `'` in the
+    # password breaks CREATE USER, and a `;` in the user name = injection.
+    import re as _re
+
+    if not _re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", db_user):
+        error(f"POSTGRES_USER `{db_user}` некорректен — только латиница/_/цифры.")
+        return 1
+    if not _re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", db_name):
+        error(f"POSTGRES_DB `{db_name}` некорректен — только латиница/_/цифры.")
+        return 1
+    db_pass_sql = db_pass.replace("'", "''")
+
     # Дополнительно убеждаемся, что psql реально подключается
     for i in range(30):
         try:
@@ -288,7 +301,7 @@ def main() -> int:
 
     if not user_exists:
         try:
-            run(["psql", "-d", "postgres", "-c", f"CREATE USER {db_user} WITH PASSWORD '{db_pass}';"])
+            run(["psql", "-d", "postgres", "-c", f"CREATE USER {db_user} WITH PASSWORD '{db_pass_sql}';"])
         except subprocess.CalledProcessError:
             pass  # может уже существовать
 
