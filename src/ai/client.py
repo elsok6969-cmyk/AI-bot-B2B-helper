@@ -174,14 +174,22 @@ def _openai_to_anthropic_response(openai_response: Any) -> SimpleNamespace:
 
 class AIClient:
     def __init__(self) -> None:
+        # Lazy: don't actually construct the underlying SDK until the
+        # first call. This lets the web (and /setup) come up even when
+        # ANTHROPIC_API_KEY / KIMI_API_KEY is empty on first run.
         self.provider = settings.ai_provider.strip().lower()
+        self._client: Any | None = None
+
+    def _ensure_client(self) -> Any:
+        if self._client is not None:
+            return self._client
         # max_retries=3 enables built-in exponential backoff for 429 / 5xx;
         # timeout=60s keeps a single call from hanging the bot loop.
         if self.provider == "anthropic":
             key = settings.anthropic_api_key.get_secret_value()
             if not key:
                 raise RuntimeError("AI_PROVIDER=anthropic but ANTHROPIC_API_KEY is empty")
-            self._client: Any = AsyncAnthropic(api_key=key, max_retries=3, timeout=60.0)
+            self._client = AsyncAnthropic(api_key=key, max_retries=3, timeout=60.0)
         elif self.provider == "kimi":
             from openai import AsyncOpenAI
 
@@ -199,6 +207,7 @@ class AIClient:
             raise RuntimeError(
                 f"Unknown AI_PROVIDER={settings.ai_provider!r}; expected 'anthropic' or 'kimi'."
             )
+        return self._client
 
     async def call(
         self,
@@ -258,7 +267,7 @@ class AIClient:
             kwargs["tool_choice"] = tool_choice
         if temperature is not None:
             kwargs["temperature"] = temperature
-        return await self._client.messages.create(**kwargs)
+        return await self._ensure_client().messages.create(**kwargs)
 
     async def _call_kimi(
         self,
@@ -285,7 +294,7 @@ class AIClient:
         if temperature is not None:
             kwargs["temperature"] = temperature
 
-        raw = await self._client.chat.completions.create(**kwargs)
+        raw = await self._ensure_client().chat.completions.create(**kwargs)
         return _openai_to_anthropic_response(raw)
 
     @staticmethod

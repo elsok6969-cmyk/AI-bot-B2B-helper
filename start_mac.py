@@ -147,18 +147,7 @@ def main() -> int:
         warn(".env не найден — копирую из .env.example")
         shutil.copy(ENV_EXAMPLE, ENV_FILE)
         ok(".env создан")
-        warn("ОБЯЗАТЕЛЬНО отредактируй .env и укажи:")
-        print("   • BOT_TOKEN — токен от @BotFather")
-        print("   • OWNER_TELEGRAM_ID — твой Telegram user id (узнать через @userinfobot)")
-        print("   • ANTHROPIC_API_KEY (или KIMI_API_KEY + AI_PROVIDER=kimi)")
-        print("   • POSTGRES_PASSWORD — любой пароль")
-        print()
-        print(f"   {C}Опционально (для веб-морды и личного аккаунта/почты):{NC}")
-        print("   • TELETHON_API_ID + TELETHON_API_HASH — с https://my.telegram.org")
-        print("     (нужны для чтения личного ТГ-аккаунта; без них Telethon просто не запустится)")
-        print("   • SECRETS_KEY — сгенерится автоматически на следующем шаге, если оставить пустым")
-        print()
-        input("Нажми Enter после редактирования .env, чтобы продолжить...")
+        info("BOT_TOKEN/AI ключ и т.д. заполнишь через веб на http://localhost:8090/setup")
 
     # Парсим .env в dict
     env_vars: dict[str, str] = {}
@@ -171,12 +160,6 @@ def main() -> int:
             env_vars[key.strip()] = val.strip()
 
     os.environ.update(env_vars)
-
-    for key in ("BOT_TOKEN", "OWNER_TELEGRAM_ID"):
-        if not env_vars.get(key):
-            error(f"{key} не задан в .env")
-            return 1
-
     ok(".env на месте")
 
     # ═══════════════════════════════════════════════════════════════════════════

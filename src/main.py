@@ -6,9 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from src.bot.app import create_bot, create_dispatcher
 from src.config import settings
-from src.db.seed import ensure_owner
 from src.health import start_health_server
 from src.integrations import telethon_runtime
 from src.scheduler.context import set_bot
@@ -27,20 +25,39 @@ def _sync_database_url() -> str:
     return settings.database_url.replace("+asyncpg", "+psycopg")
 
 
+def _bot_configured() -> bool:
+    return bool(
+        settings.bot_token.get_secret_value().strip() and settings.owner_telegram_id
+    )
+
+
 async def run() -> None:
     setup_logger(settings.log_level)
 
-    bot = create_bot()
-    dp = create_dispatcher()
-    set_bot(bot)
-    telethon_runtime.set_bot(bot)
+    bot_ready = _bot_configured()
+    bot = None
+    dp = None
+
+    if bot_ready:
+        from src.bot.app import create_bot, create_dispatcher
+        from src.db.seed import ensure_owner
+
+        bot = create_bot()
+        dp = create_dispatcher()
+        set_bot(bot)
+        telethon_runtime.set_bot(bot)
+        await ensure_owner()
+    else:
+        logger.warning(
+            "BOT_TOKEN / OWNER_TELEGRAM_ID не настроены — Telegram-бот не "
+            "запущен. Открой http://localhost:{}/setup в браузере и заполни.",
+            settings.web_port,
+        )
 
     scheduler = AsyncIOScheduler(
         timezone=settings.tz,
         jobstores={"default": SQLAlchemyJobStore(url=_sync_database_url())},
     )
-
-    await ensure_owner()
 
     health_runner = await start_health_server(
         host=settings.health_host, port=settings.health_port
@@ -52,69 +69,76 @@ async def run() -> None:
         web_server = await start_web_server()
         web_task = asyncio.create_task(web_server.serve(), name="web_server")
 
-    @dp.startup()
-    async def _on_startup() -> None:
-        scheduler.add_job(
-            daily_digest_job,
-            trigger=CronTrigger(hour=settings.daily_digest_hour, minute=0),
-            id="daily_digest",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-        )
-        scheduler.add_job(
-            check_reminders_job,
-            trigger=IntervalTrigger(minutes=settings.reminder_check_interval_minutes),
-            id="check_reminders",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-        )
-        scheduler.add_job(
-            nightly_profile_refresh,
-            trigger=CronTrigger(hour=settings.profile_update_hour, minute=0),
-            id="nightly_profile_refresh",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-        )
-        if settings.mail_enabled:
+    if bot_ready and dp is not None and bot is not None:
+
+        @dp.startup()
+        async def _on_startup() -> None:
             scheduler.add_job(
-                mail_poll_job,
-                trigger=IntervalTrigger(minutes=settings.mail_poll_interval_minutes),
-                id="mail_poll",
+                daily_digest_job,
+                trigger=CronTrigger(hour=settings.daily_digest_hour, minute=0),
+                id="daily_digest",
                 replace_existing=True,
                 coalesce=True,
                 max_instances=1,
             )
+            scheduler.add_job(
+                check_reminders_job,
+                trigger=IntervalTrigger(minutes=settings.reminder_check_interval_minutes),
+                id="check_reminders",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+            )
+            scheduler.add_job(
+                nightly_profile_refresh,
+                trigger=CronTrigger(hour=settings.profile_update_hour, minute=0),
+                id="nightly_profile_refresh",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+            )
+            if settings.mail_enabled:
+                scheduler.add_job(
+                    mail_poll_job,
+                    trigger=IntervalTrigger(minutes=settings.mail_poll_interval_minutes),
+                    id="mail_poll",
+                    replace_existing=True,
+                    coalesce=True,
+                    max_instances=1,
+                )
 
-        scheduler.start()
-        try:
-            await telethon_runtime.start_worker()
-        except Exception:
-            logger.exception("Telethon worker failed to start")
-        logger.info("Bot started")
+            scheduler.start()
+            try:
+                await telethon_runtime.start_worker()
+            except Exception:
+                logger.exception("Telethon worker failed to start")
+            logger.info("Bot started")
 
-    @dp.shutdown()
-    async def _on_shutdown() -> None:
-        logger.info("Shutting down...")
-        if scheduler.running:
-            scheduler.shutdown(wait=False)
-        try:
-            await telethon_runtime.shutdown_all()
-        except Exception:
-            logger.exception("Telethon shutdown failed")
-        await bot.session.close()
-        logger.info("Bot stopped")
+        @dp.shutdown()
+        async def _on_shutdown() -> None:
+            logger.info("Shutting down...")
+            if scheduler.running:
+                scheduler.shutdown(wait=False)
+            try:
+                await telethon_runtime.shutdown_all()
+            except Exception:
+                logger.exception("Telethon shutdown failed")
+            assert bot is not None
+            await bot.session.close()
+            logger.info("Bot stopped")
 
-    # Временно получаем ВСЕ updates без фильтрации, чтобы проверить,
-    # приходят ли business-сообщения вообще.
     try:
-        await dp.start_polling(bot)
+        if bot_ready and dp is not None and bot is not None:
+            await dp.start_polling(bot)
+        else:
+            # No bot — just keep web alive. Sleep forever; the user can
+            # configure /setup, save, and restart the launcher.
+            assert web_task is not None
+            await web_task
     finally:
         if web_server is not None:
             web_server.should_exit = True
-        if web_task is not None:
+        if web_task is not None and not web_task.done():
             try:
                 await asyncio.wait_for(web_task, timeout=5)
             except (TimeoutError, asyncio.CancelledError):
