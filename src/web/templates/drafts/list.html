@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Черновики — Mynota{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-semibold">Черновики</h1>
+  <div class="flex gap-2 text-sm">
+    <a href="/drafts?status=pending" class="{% if status == 'pending' %}font-semibold text-blue-700{% else %}text-slate-600 hover:text-slate-900{% endif %}">в очереди</a>
+    <a href="/drafts?status=sent" class="{% if status == 'sent' %}font-semibold text-blue-700{% else %}text-slate-600 hover:text-slate-900{% endif %}">отправленные</a>
+    <a href="/drafts?status=rejected" class="{% if status == 'rejected' %}font-semibold text-blue-700{% else %}text-slate-600 hover:text-slate-900{% endif %}">отклонённые</a>
+  </div>
+</div>
+
+{% if not drafts %}
+<div class="text-sm text-slate-500">Пусто.</div>
+{% endif %}
+
+<div class="space-y-4">
+  {% for d in drafts %}
+  <article class="bg-white border border-slate-200 rounded-lg p-4">
+    <header class="flex justify-between items-start mb-3">
+      <div>
+        <a href="/clients/{{ d.client.slug }}" class="font-medium text-slate-900 hover:text-blue-700">{{ d.client.name or d.client.slug }}</a>
+        <div class="text-xs text-slate-500">{{ d.created_at.strftime("%d.%m %H:%M") }} · {{ d.channel.value }}</div>
+      </div>
+      <div class="text-xs px-2 py-1 rounded-full
+        {% if d.status.value == 'pending' %}bg-amber-100 text-amber-800
+        {% elif d.status.value == 'sent' %}bg-green-100 text-green-800
+        {% else %}bg-slate-100 text-slate-600{% endif %}">{{ d.status.value }}</div>
+    </header>
+
+    {% if d.source_message and d.source_message.text %}
+    <details class="mb-3 text-sm">
+      <summary class="cursor-pointer text-slate-600">Исходное сообщение</summary>
+      <pre class="whitespace-pre-wrap text-sm bg-slate-50 p-2 mt-1 rounded">{{ d.source_message.text }}</pre>
+    </details>
+    {% endif %}
+
+    {% if d.status.value == 'pending' %}
+    {% if d.variants %}
+    <div class="mb-3 grid md:grid-cols-3 gap-2">
+      {% for v in d.variants %}
+      <form method="post" action="/drafts/{{ d.id }}/select" class="bg-slate-50 p-2 rounded text-sm">
+        <div class="font-medium text-xs text-slate-600 uppercase mb-1">{{ v.label }}</div>
+        <div class="whitespace-pre-wrap text-sm mb-2">{{ v.text }}</div>
+        <input type="hidden" name="text" value="{{ v.text }}">
+        <button class="text-xs text-blue-700 hover:underline">взять этот вариант</button>
+      </form>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="/drafts/{{ d.id }}/send" class="space-y-2">
+      {% if d.subject %}<input type="text" name="subject" value="{{ d.subject }}" class="w-full text-sm rounded border-slate-300 px-2 py-1" disabled>{% endif %}
+      <textarea name="text" rows="4" class="w-full text-sm rounded border-slate-300 px-2 py-1">{{ d.selected_text or "" }}</textarea>
+      <div class="flex gap-2">
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm rounded px-3 py-1.5">Отправить</button>
+        <button type="submit" formaction="/drafts/{{ d.id }}/reject" class="bg-slate-200 hover:bg-slate-300 text-slate-800 text-sm rounded px-3 py-1.5">Отклонить</button>
+      </div>
+    </form>
+    {% else %}
+    <pre class="whitespace-pre-wrap text-sm bg-slate-50 p-2 rounded">{{ d.selected_text or "" }}</pre>
+    {% endif %}
+  </article>
+  {% endfor %}
+</div>
+{% endblock %}

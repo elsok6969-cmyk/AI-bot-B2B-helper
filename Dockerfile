@@ -43,6 +43,6 @@ RUN chmod +x ./entrypoint.sh
 
 USER app
 
-EXPOSE 8080
+EXPOSE 8080 8090
 
 ENTRYPOINT ["./entrypoint.sh"]

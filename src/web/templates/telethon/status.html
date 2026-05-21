@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Telethon — Mynota{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold mb-4">Telethon (личный аккаунт)</h1>
+
+{% if not telethon_enabled %}
+<div class="bg-slate-100 border border-slate-200 text-slate-700 rounded p-3 mb-4 text-sm">
+  Telethon выключен через <code>TELETHON_ENABLED=false</code>.
+</div>
+{% endif %}
+
+{% if not api_ready %}
+<div class="bg-amber-50 border border-amber-200 text-amber-900 rounded p-3 mb-4 text-sm">
+  Нужны <code>TELETHON_API_ID</code> и <code>TELETHON_API_HASH</code> — получи их на
+  <a href="https://my.telegram.org" target="_blank" class="underline">my.telegram.org</a>
+  и положи в <code>.env</code>.
+</div>
+{% endif %}
+
+{% if not secrets_ready %}
+<div class="bg-amber-50 border border-amber-200 text-amber-900 rounded p-3 mb-4 text-sm">
+  Нет <code>SECRETS_KEY</code> — сессию Telethon шифровать нечем, логин не запустится.
+</div>
+{% endif %}
+
+<section class="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+  <h2 class="text-lg font-medium mb-2">Статус</h2>
+  {% if account %}
+  <ul class="text-sm space-y-1">
+    <li>Телефон: <span class="font-mono">{{ account.phone or "—" }}</span></li>
+    <li>Авторизован: {% if account.is_authorized %}<span class="text-green-700">да</span>{% else %}<span class="text-rose-700">нет</span>{% endif %}</li>
+    <li>Фаза: <span class="font-mono">{{ account.login_phase or "idle" }}</span></li>
+    <li>TG ID: <span class="font-mono">{{ account.telegram_user_id or "—" }}</span></li>
+    <li>Последний вход: <span class="font-mono">{{ account.last_login_at.strftime("%d.%m.%Y %H:%M") if account.last_login_at else "—" }}</span></li>
+  </ul>
+  {% else %}
+  <p class="text-sm text-slate-600">Аккаунт не привязан.</p>
+  {% endif %}
+</section>
+
+{% if not account or not account.is_authorized %}
+<section class="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+  <h3 class="font-medium mb-2">Вход — шаг 1: телефон</h3>
+  <form method="post" action="/telethon/login/start" class="flex gap-2 items-end">
+    <label class="block flex-1">
+      <span class="text-xs text-slate-500 block">Номер (с +)</span>
+      <input type="tel" name="phone" required placeholder="+79991234567"
+             class="w-full rounded border-slate-300 px-2 py-1 text-sm">
+    </label>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white text-sm rounded px-3 py-1.5">Отправить код</button>
+  </form>
+</section>
+
+{% if account and account.login_phase in ("code_sent", "password_needed") %}
+<section class="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+  <h3 class="font-medium mb-2">Вход — шаг 2: код {% if account.login_phase == 'password_needed' %}+ 2FA пароль{% endif %}</h3>
+  <form method="post" action="/telethon/login/code" class="space-y-2 text-sm">
+    <label class="block">
+      <span class="text-xs text-slate-500 block">Код из Telegram</span>
+      <input type="text" name="code" required autocomplete="one-time-code"
+             class="w-full md:w-48 rounded border-slate-300 px-2 py-1">
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500 block">2FA пароль (если включён cloud password)</span>
+      <input type="password" name="password" autocomplete="current-password"
+             class="w-full md:w-72 rounded border-slate-300 px-2 py-1">
+    </label>
+    <button class="bg-blue-600 hover:bg-blue-700 text-white text-sm rounded px-3 py-1.5">Войти</button>
+  </form>
+</section>
+{% endif %}
+{% else %}
+<section class="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+  <form method="post" action="/telethon/logout">
+    <button class="bg-rose-100 hover:bg-rose-200 text-rose-800 text-sm rounded px-3 py-1.5"
+            onclick="return confirm('Отключить аккаунт? Telethon перестанет слушать чаты.')">Отключить Telethon</button>
+  </form>
+</section>
+{% endif %}
+
+<div class="text-sm text-slate-600">
+  <p>Что делает Telethon:</p>
+  <ul class="list-disc list-inside mt-1 space-y-1">
+    <li>слушает все <strong>личные</strong> входящие и исходящие в твоём аккаунте;</li>
+    <li>создаёт клиента в БД, если такого ещё нет;</li>
+    <li>сообщения отображаются в карточке клиента, AI готовит черновики ответа;</li>
+    <li>сам ничего <strong>не отправляет</strong> — отправка только по твоей кнопке.</li>
+  </ul>
+</div>
+{% endblock %}

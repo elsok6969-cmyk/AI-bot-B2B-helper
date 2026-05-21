@@ -115,6 +115,14 @@ async def check_reminders_job() -> None:
 # ---------------------------------------------------------------------------
 
 
+async def mail_poll_job() -> None:
+    """Poll every active mailbox for new IMAP messages."""
+    from src.integrations.mail_runtime import poll_all_mailboxes
+
+    bot = get_bot()
+    await poll_all_mailboxes(bot)
+
+
 async def nightly_profile_refresh() -> None:
     """Refresh profiles for clients active in the last 24 hours.
 
