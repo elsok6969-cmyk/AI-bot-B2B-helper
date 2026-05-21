@@ -63,6 +63,7 @@ class Client(Base):
 
     telegram_user_id: Mapped[int | None] = mapped_column(BigInteger)
     telegram_username: Mapped[str | None] = mapped_column(String(255))
+    email: Mapped[str | None] = mapped_column(String(255))
     name: Mapped[str | None] = mapped_column(String(255))
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
 

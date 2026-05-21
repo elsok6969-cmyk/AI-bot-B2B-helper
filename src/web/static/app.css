@@ -1,0 +1,4 @@
+/* Minimal overrides; Tailwind via CDN handles the rest. */
+.message-in { @apply bg-white border border-slate-200 rounded-lg px-3 py-2; }
+.message-out { @apply bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 ml-12; }
+textarea { font-family: inherit; }

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Настройки — Mynota{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold mb-4">Настройки</h1>
+
+<p class="text-sm text-slate-600 mb-4">
+  Здесь только показ. Меняй значения в <code>.env</code> и перезапускай —
+  правка из веба не предусмотрена (это локальная установка).
+</p>
+
+<div class="bg-white border border-slate-200 rounded-lg p-4">
+  <dl class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+    <dt class="text-slate-500">AI провайдер</dt><dd>{{ settings.ai_provider }}</dd>
+    <dt class="text-slate-500">Автогенерация черновиков</dt><dd>{{ "да" if settings.drafts_autogenerate else "нет" }}</dd>
+    <dt class="text-slate-500">Почта (IMAP) включена</dt><dd>{{ "да" if settings.mail_enabled else "нет" }}</dd>
+    <dt class="text-slate-500">Интервал опроса почты</dt><dd>{{ settings.mail_poll_interval_minutes }} мин</dd>
+    <dt class="text-slate-500">Telethon включен</dt><dd>{{ "да" if settings.telethon_enabled else "нет" }}</dd>
+    <dt class="text-slate-500">Telethon API ключи в .env</dt><dd>{{ "да" if settings.telethon_api_ready else "нет" }}</dd>
+    <dt class="text-slate-500">Vault (SECRETS_KEY)</dt><dd>{{ "настроен" if settings.secrets_ready else "не настроен" }}</dd>
+  </dl>
+</div>
+{% endblock %}

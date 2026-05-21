@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Дашборд — Mynota{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold mb-4">Сводка</h1>
+
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
+  <div class="bg-white rounded-lg p-4 border border-slate-200">
+    <div class="text-xs text-slate-500 uppercase tracking-wide">Всего клиентов</div>
+    <div class="text-2xl font-semibold mt-1">{{ stats.clients_total }}</div>
+  </div>
+  <div class="bg-white rounded-lg p-4 border border-slate-200">
+    <div class="text-xs text-slate-500 uppercase tracking-wide">Активны за 24ч</div>
+    <div class="text-2xl font-semibold mt-1">{{ stats.clients_active_24h }}</div>
+  </div>
+  <div class="bg-white rounded-lg p-4 border border-slate-200">
+    <div class="text-xs text-slate-500 uppercase tracking-wide">Входящих за 24ч</div>
+    <div class="text-2xl font-semibold mt-1">{{ stats.inbound_24h }}</div>
+  </div>
+  <div class="bg-white rounded-lg p-4 border border-slate-200">
+    <div class="text-xs text-slate-500 uppercase tracking-wide">Черновиков ждут</div>
+    <div class="text-2xl font-semibold mt-1 {% if stats.drafts_pending %}text-amber-700{% endif %}">{{ stats.drafts_pending }}</div>
+  </div>
+  <div class="bg-white rounded-lg p-4 border border-slate-200">
+    <div class="text-xs text-slate-500 uppercase tracking-wide">Напоминаний</div>
+    <div class="text-2xl font-semibold mt-1 {% if stats.reminders_due %}text-rose-700{% endif %}">{{ stats.reminders_due }}</div>
+  </div>
+</div>
+
+<div class="grid md:grid-cols-2 gap-6">
+  <section>
+    <h2 class="text-lg font-medium mb-2">Черновики в очереди</h2>
+    {% if recent_drafts %}
+    <ul class="space-y-2">
+      {% for d in recent_drafts %}
+      <li class="bg-white rounded-lg p-3 border border-slate-200">
+        <div class="text-sm text-slate-500">
+          {{ d.created_at.strftime("%d.%m %H:%M") }} · {{ d.channel.value }}
+        </div>
+        <div class="font-medium">{{ d.client.name or d.client.slug }}</div>
+        <div class="text-sm text-slate-700 mt-1 line-clamp-2">{{ d.selected_text or "(пусто)" }}</div>
+      </li>
+      {% endfor %}
+    </ul>
+    <a href="/drafts" class="inline-block mt-2 text-sm text-blue-700">все черновики →</a>
+    {% else %}
+    <div class="text-sm text-slate-500">Очередь пуста.</div>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2 class="text-lg font-medium mb-2">Последние клиенты</h2>
+    {% if recent_clients %}
+    <ul class="space-y-1">
+      {% for c in recent_clients %}
+      <li class="bg-white rounded-lg p-3 border border-slate-200 flex justify-between items-center">
+        <a href="/clients/{{ c.slug }}" class="font-medium hover:text-blue-700">{{ c.name or c.slug }}</a>
+        <span class="text-xs text-slate-500">{{ c.last_touch_at.strftime("%d.%m %H:%M") if c.last_touch_at }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="text-sm text-slate-500">Клиентов ещё нет.</div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

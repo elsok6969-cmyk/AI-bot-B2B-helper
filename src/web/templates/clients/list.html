@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Клиенты — Mynota{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-semibold">Клиенты</h1>
+</div>
+
+<form method="get" action="/clients" class="mb-4">
+  <input type="search" name="q" value="{{ q }}" placeholder="поиск по имени, slug, username, email…"
+         class="w-full md:w-96 rounded-md border border-slate-300 px-3 py-1.5 text-sm">
+</form>
+
+{% if clients %}
+<div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-100 text-slate-600 text-left">
+      <tr>
+        <th class="px-3 py-2">Имя</th>
+        <th class="px-3 py-2">slug</th>
+        <th class="px-3 py-2">Каналы</th>
+        <th class="px-3 py-2">Этап</th>
+        <th class="px-3 py-2">t°</th>
+        <th class="px-3 py-2">Последний контакт</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for c in clients %}
+      <tr class="hover:bg-slate-50">
+        <td class="px-3 py-2"><a href="/clients/{{ c.slug }}" class="font-medium text-slate-900 hover:text-blue-700">{{ c.name or c.slug }}</a></td>
+        <td class="px-3 py-2 text-slate-500 font-mono text-xs">{{ c.slug }}</td>
+        <td class="px-3 py-2 text-xs text-slate-600">
+          {% if c.telegram_username %}@{{ c.telegram_username }}{% endif %}
+          {% if c.telegram_user_id and not c.telegram_username %}tg:{{ c.telegram_user_id }}{% endif %}
+          {% if c.email %}<div>{{ c.email }}</div>{% endif %}
+        </td>
+        <td class="px-3 py-2 text-xs">{{ c.stage.value }}</td>
+        <td class="px-3 py-2 text-xs">
+          {% if c.temperature.value == "hot" %}<span class="text-rose-600">🔥</span>
+          {% elif c.temperature.value == "warm" %}<span class="text-amber-600">⚠</span>
+          {% else %}<span class="text-slate-400">·</span>{% endif %}
+        </td>
+        <td class="px-3 py-2 text-xs text-slate-500">{{ c.last_touch_at.strftime("%d.%m %H:%M") if c.last_touch_at else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-sm text-slate-500">Клиентов нет.</div>
+{% endif %}
+{% endblock %}

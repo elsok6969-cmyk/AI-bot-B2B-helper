@@ -29,6 +29,7 @@ services:
       TZ: ${TZ:-Europe/Moscow}
     ports:
       - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8090:8090"
     depends_on:
       postgres:
         condition: service_healthy

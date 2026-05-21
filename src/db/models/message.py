@@ -25,6 +25,8 @@ class MessageSource(str, enum.Enum):
     TG_BUSINESS = "tg_business"
     MANUAL_SCREENSHOT = "manual_screenshot"
     EMAIL = "email"
+    TELETHON_USER = "telethon_user"
+    MANUAL_TEXT = "manual_text"
 
 
 class Message(Base):

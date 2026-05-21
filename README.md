@@ -1,17 +1,47 @@
 # Mynota Client Assistant
 
-Telegram bot for managing B2B clients with Claude-driven insights. Built on the
-Telegram Business API with multi-tenant support (organization → managers → clients).
+B2B client manager with three ingest channels (Telegram bot Business API,
+personal Telegram via Telethon, Yandex Mail IMAP) and a local web dashboard
+for triaging AI-generated reply drafts. Built around a Claude-driven pipeline
+(analyzer + responder + profiler) with multi-tenant support
+(organization → managers → clients).
 
 ## Stack
 
 - Python 3.12, aiogram 3.13+
+- FastAPI + Jinja2 + HTMX (local-only web UI on `127.0.0.1:8090`)
+- Telethon (personal Telegram account ingest)
+- aioimaplib + aiosmtplib (Yandex Mail IMAP/SMTP)
 - SQLAlchemy 2.0 (async) + asyncpg + Alembic
 - PostgreSQL 16
 - Anthropic SDK (Claude Sonnet 4.5 + Haiku 4.5)
 - APScheduler with SQLAlchemyJobStore on Postgres
 - aiohttp health endpoint
 - Docker Compose
+
+## Channels
+
+The system ingests inbound from three sources, persists them into the same
+`messages` table, runs them through the same AI pipeline, and exposes them in
+the web dashboard. Outbound is **never automatic** — AI drafts wait for your
+click before being sent.
+
+| Channel | Ingest | Outbound |
+|---|---|---|
+| Telegram Business (bot) | `business_message` webhook (handled by the existing aiogram bot) | manual — bot can't post for you, so the draft is just a copy-and-paste aid |
+| Telegram personal (Telethon) | `NewMessage` events on private chats from the authorized user account | sent via the same Telethon client, on explicit click |
+| Yandex Mail | IMAP poller, every `MAIL_POLL_INTERVAL_MINUTES` | SMTP on explicit click |
+
+## Web dashboard
+
+After `docker compose up -d --build`, open <http://localhost:8090>:
+
+- `/` — summary tiles (clients, drafts queue, due reminders)
+- `/clients` — searchable list, client cards with full history
+- `/drafts` — AI-generated reply queue: pick a variant, edit, click **Отправить**
+- `/mail` — configure your Yandex mailbox (use an [app password](https://yandex.ru/support/id/authorization/app-passwords.html), not the main one)
+- `/telethon` — phone-number login flow for your personal Telegram account
+- `/settings` — read-only view of the relevant `.env` knobs
 
 ## Quick start (macOS — double-click)
 
@@ -33,11 +63,29 @@ Telegram Business API with multi-tenant support (organization → managers → c
    cp .env.example .env
    ```
 
-   Required: `BOT_TOKEN`, `OWNER_TELEGRAM_ID`, `POSTGRES_PASSWORD` (align
-   `DATABASE_URL` if you change the user/password), plus the API key for
-   your chosen `AI_PROVIDER`: `ANTHROPIC_API_KEY` for production, or
-   `KIMI_API_KEY` (with `AI_PROVIDER=kimi`) for cheap testing — see
+   Required for the bot to run: `BOT_TOKEN`, `OWNER_TELEGRAM_ID`,
+   `POSTGRES_PASSWORD` (align `DATABASE_URL` if you change the
+   user/password), plus the API key for your chosen `AI_PROVIDER`:
+   `ANTHROPIC_API_KEY` for production, or `KIMI_API_KEY` (with
+   `AI_PROVIDER=kimi`) for cheap testing — see
    [Testing with Kimi](#testing-with-kimi-instead-of-anthropic).
+
+   Additionally required for the new channels:
+
+   - `SECRETS_KEY` — Fernet key used to encrypt the Telethon session and
+     the Yandex mailbox password at rest. Generate one with:
+
+     ```bash
+     python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+     ```
+
+   - `TELETHON_API_ID` + `TELETHON_API_HASH` — get them from
+     <https://my.telegram.org> → API Development Tools. Required only if
+     you want Telethon ingest of your personal account.
+
+   The web UI itself needs no extra config — it serves on
+   `127.0.0.1:8090` by default. Mail polling defaults to every 2
+   minutes.
 
 2. Build and start the stack — the entrypoint runs `alembic upgrade head`
    automatically before starting the bot:

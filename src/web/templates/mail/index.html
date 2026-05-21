@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Почта — Mynota{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold mb-4">Яндекс.Почта</h1>
+
+{% if not secrets_ready %}
+<div class="bg-amber-50 border border-amber-200 text-amber-900 rounded p-3 mb-4 text-sm">
+  Сначала добавь <code class="bg-white px-1 rounded">SECRETS_KEY</code> в <code>.env</code> и перезапусти приложение —
+  без него пароль почты сохранить нельзя.
+</div>
+{% endif %}
+
+<section class="bg-white rounded-lg border border-slate-200 p-4 mb-6">
+  <h2 class="text-lg font-medium mb-2">{% if mailbox %}Настройки ящика{% else %}Подключить ящик{% endif %}</h2>
+  <p class="text-sm text-slate-600 mb-3">
+    Для Яндекса нужен <a class="text-blue-700 underline" href="https://yandex.ru/support/id/authorization/app-passwords.html" target="_blank">пароль приложения</a>,
+    не основной. Хост по умолчанию — Яндекс, но можно сменить.
+  </p>
+  <form method="post" action="/mail/save" class="grid md:grid-cols-2 gap-3 text-sm">
+    <label class="block">
+      <span class="text-xs text-slate-500 block">Email</span>
+      <input type="email" name="email" value="{{ mailbox.email if mailbox else '' }}" required
+             class="w-full rounded border-slate-300 px-2 py-1">
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500 block">Пароль приложения</span>
+      <input type="password" name="password" value="" {% if not mailbox %}required{% endif %} placeholder="{% if mailbox %}(не показывается; оставить пустым = не менять — НЕ поддерживается){% endif %}"
+             class="w-full rounded border-slate-300 px-2 py-1">
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500 block">IMAP host</span>
+      <input type="text" name="imap_host" value="{{ mailbox.imap_host if mailbox else defaults.imap_host }}" class="w-full rounded border-slate-300 px-2 py-1">
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500 block">IMAP port</span>
+      <input type="number" name="imap_port" value="{{ mailbox.imap_port if mailbox else defaults.imap_port }}" class="w-full rounded border-slate-300 px-2 py-1">
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500 block">SMTP host</span>
+      <input type="text" name="smtp_host" value="{{ mailbox.smtp_host if mailbox else defaults.smtp_host }}" class="w-full rounded border-slate-300 px-2 py-1">
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500 block">SMTP port</span>
+      <input type="number" name="smtp_port" value="{{ mailbox.smtp_port if mailbox else defaults.smtp_port }}" class="w-full rounded border-slate-300 px-2 py-1">
+    </label>
+    <label class="block flex items-center gap-2 col-span-2">
+      <input type="checkbox" name="is_active" value="true" {% if not mailbox or mailbox.is_active %}checked{% endif %}>
+      <span class="text-sm">Активен (опрашивать)</span>
+    </label>
+    <div class="col-span-2 flex gap-2">
+      <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm rounded px-3 py-1.5">Сохранить</button>
+      {% if mailbox %}
+      <button formaction="/mail/poll" class="bg-slate-200 hover:bg-slate-300 text-slate-800 text-sm rounded px-3 py-1.5" formnovalidate>Опросить сейчас</button>
+      <button formaction="/mail/delete" class="bg-rose-100 hover:bg-rose-200 text-rose-800 text-sm rounded px-3 py-1.5" formnovalidate onclick="return confirm('Удалить настройки ящика?')">Удалить</button>
+      {% endif %}
+    </div>
+  </form>
+</section>
+
+{% if mailbox %}
+<section class="bg-white rounded-lg border border-slate-200 p-4">
+  <h3 class="font-medium mb-2">Статус</h3>
+  <ul class="text-sm space-y-1">
+    <li>Последний опрос: <span class="font-mono">{{ mailbox.last_polled_at.strftime("%d.%m.%Y %H:%M:%S") if mailbox.last_polled_at else "—" }}</span></li>
+    <li>Последний обработанный UID: <span class="font-mono">{{ mailbox.last_uid_seen }}</span></li>
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

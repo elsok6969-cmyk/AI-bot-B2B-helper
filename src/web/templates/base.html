@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Mynota{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-6">
+      <a href="/" class="font-semibold text-lg">Mynota</a>
+      <nav class="flex gap-4 text-sm text-slate-700">
+        <a href="/" class="hover:text-slate-900">Дашборд</a>
+        <a href="/clients" class="hover:text-slate-900">Клиенты</a>
+        <a href="/drafts" class="hover:text-slate-900">Черновики</a>
+        <a href="/mail" class="hover:text-slate-900">Почта</a>
+        <a href="/telethon" class="hover:text-slate-900">Telethon</a>
+        <a href="/settings" class="hover:text-slate-900">Настройки</a>
+      </nav>
+    </div>
+  </header>
+  <main class="max-w-6xl mx-auto px-4 py-6">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -42,6 +42,35 @@ class Settings(BaseSettings):
     daily_digest_hour: int = 9
     reminder_check_interval_minutes: int = 5
 
+    # --- Web UI (local-only dashboard) ----------------------------------
+    web_enabled: bool = True
+    web_host: str = "0.0.0.0"
+    web_port: int = 8090
+
+    # --- Secrets vault: Fernet key for encrypting credentials in DB ----
+    # If left empty, integrations requiring stored creds (Telethon session,
+    # mailbox password) will refuse to save. Generate one with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    secrets_key: SecretStr = SecretStr("")
+
+    # --- Telethon (user-account ingestion) ------------------------------
+    telethon_enabled: bool = True
+    telethon_api_id: int = 0
+    telethon_api_hash: SecretStr = SecretStr("")
+
+    # --- Yandex Mail (IMAP/SMTP) ----------------------------------------
+    mail_enabled: bool = True
+    mail_imap_host: str = "imap.yandex.ru"
+    mail_imap_port: int = 993
+    mail_smtp_host: str = "smtp.yandex.ru"
+    mail_smtp_port: int = 465
+    mail_poll_interval_minutes: int = 2
+
+    # --- Drafts ---------------------------------------------------------
+    # When True, every inbound message triggers reply-variant generation
+    # and stores a Draft in the queue. The user reviews and sends from web.
+    drafts_autogenerate: bool = True
+
     # ---- role → concrete model resolution ---------------------------------
 
     @property

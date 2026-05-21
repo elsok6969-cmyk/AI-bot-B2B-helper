@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import html
 from typing import Any, cast
 from uuid import UUID
@@ -12,9 +13,11 @@ from sqlalchemy.orm import selectinload
 from src.ai.analyzer import analyze_inbound
 from src.ai.profiler import update_profile
 from src.ai.responder import suggest_reply
+from src.config import settings
 from src.db.models import Client, Conversation, MessageDirection, User
 from src.db.models import Message as MessageModel
 from src.db.session import SessionLocal
+from src.services.drafts import channel_for_source, generate_draft_for_message
 from src.utils.logger import logger
 
 _ANALYZER_CONTEXT_LIMIT = 10
@@ -122,6 +125,9 @@ async def process_inbound_message(
                         "Profile refresh after manual /note failed for client {}",
                         client.slug,
                     )
+
+        if settings.drafts_autogenerate and channel_for_source(msg.source) is not None:
+            asyncio.create_task(generate_draft_for_message(message_id))
     except Exception:
         logger.exception("AI pipeline failed for message {}", message_id)
 
