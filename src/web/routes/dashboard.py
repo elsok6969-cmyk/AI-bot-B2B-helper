@@ -46,10 +46,15 @@ async def index(request: Request, session: SessionDep, user: UserDep) -> HTMLRes
         )
     )
     drafts_pending = await session.scalar(
-        select(func.count(Draft.id)).where(Draft.status == DraftStatus.PENDING)
+        select(func.count(Draft.id))
+        .join(Client, Client.id == Draft.client_id)
+        .where(Draft.status == DraftStatus.PENDING, Client.org_id == user.org_id)
     )
     reminders_due = await session.scalar(
-        select(func.count(Reminder.id)).where(
+        select(func.count(Reminder.id))
+        .join(Client, Client.id == Reminder.client_id)
+        .where(
+            Client.org_id == user.org_id,
             Reminder.status.in_([ReminderStatus.PENDING, ReminderStatus.SENT]),
             Reminder.due_at <= now,
         )
@@ -59,7 +64,8 @@ async def index(request: Request, session: SessionDep, user: UserDep) -> HTMLRes
         (
             await session.execute(
                 select(Draft)
-                .where(Draft.status == DraftStatus.PENDING)
+                .join(Client, Client.id == Draft.client_id)
+                .where(Draft.status == DraftStatus.PENDING, Client.org_id == user.org_id)
                 .order_by(Draft.created_at.desc())
                 .limit(5)
                 .options(selectinload(Draft.client))

@@ -67,6 +67,18 @@ async def mail_save(
         )
         return resp
 
+    # Reject internal/loopback IMAP/SMTP hosts up front — same SSRF defence
+    # as in the runtime, but surface as a clean flash on save.
+    from src.integrations.mail_runtime import MailError, assert_safe_host
+
+    for label, host in (("IMAP", imap_host), ("SMTP", smtp_host)):
+        try:
+            assert_safe_host(host)
+        except MailError as exc:
+            resp = RedirectResponse(url="/mail", status_code=303)
+            attach_flash_to_redirect(resp, f"{label}: {exc}", level="error")
+            return resp
+
     mailbox = await session.scalar(select(Mailbox).where(Mailbox.user_id == user.id))
     password = (password or "").strip()
 

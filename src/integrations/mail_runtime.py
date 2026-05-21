@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import contextlib
 import email
+import ipaddress
 import re
+import socket
 from datetime import UTC, datetime
 from email.header import decode_header, make_header
 from email.message import EmailMessage
@@ -58,6 +60,49 @@ def looks_like_email(value: str | None) -> bool:
     return bool(value and _EMAIL_RE.match(value.strip()))
 
 
+def assert_safe_host(host: str) -> None:
+    """Block IMAP/SMTP connections to internal IPs and obvious abuse targets.
+
+    Even on a single-user local install, a malicious page that tricks the
+    user into pasting ``169.254.169.254`` (cloud metadata) or ``127.0.0.1``
+    can exfiltrate the encrypted Yandex password to whatever local
+    listener it spins up. We resolve the hostname and reject if it
+    points anywhere that isn't public unicast.
+    """
+    host = (host or "").strip().lower()
+    if not host:
+        raise MailError("Empty IMAP/SMTP host")
+
+    # Block obvious junk before DNS.
+    if host in {"localhost", "ip6-localhost", "ip6-loopback"}:
+        raise MailError(f"Refusing to connect to {host}")
+
+    try:
+        addrs = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise MailError(f"Cannot resolve {host}: {exc}") from exc
+
+    for family, _, _, _, sockaddr in addrs:
+        try:
+            ip_str = sockaddr[0]
+            ip = ipaddress.ip_address(ip_str)
+        except (IndexError, ValueError):
+            continue
+        if (
+            ip.is_loopback
+            or ip.is_private
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise MailError(
+                f"Host {host} resolves to {ip} — refusing to connect "
+                "(private/loopback/link-local)."
+            )
+        del family  # silence unused
+
+
 # ---------- IMAP poller ---------------------------------------------------
 
 
@@ -98,6 +143,12 @@ async def _poll_one(mailbox: Mailbox, bot: Any) -> None:
             if fresh is not None:
                 fresh.is_active = False
                 await session.commit()
+        return
+
+    try:
+        assert_safe_host(mailbox.imap_host)
+    except MailError as exc:
+        logger.warning("Skipping IMAP poll for {}: {}", mailbox.email, exc)
         return
 
     client: aioimaplib.IMAP4_SSL | None = None
@@ -418,6 +469,7 @@ async def send_email(
 ) -> None:
     if not looks_like_email(to_address):
         raise MailError(f"Invalid recipient email: {to_address}")
+    assert_safe_host(mailbox.smtp_host)
     password = decrypt(mailbox.password_encrypted)
 
     msg = EmailMessage()

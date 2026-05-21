@@ -190,19 +190,13 @@ async def send_draft(
         )
 
     elif draft.channel == DraftChannel.TG_BUSINESS:
-        # Telegram Business API doesn't allow bots to send on a manager's
-        # behalf outside of a business_connection context. We don't attempt
-        # this from web — the manager replies in their own Telegram client
-        # and our handler captures it. Mark the draft as sent so it leaves
-        # the queue; record the outbound for history.
-        await _store_outbound(
-            session,
-            conversation_id=draft.conversation_id,
-            client_id=client.id,
-            text=text,
-            source=MessageSource.MANUAL_TEXT,
-            raw_payload={"note": "marked sent via web; manager sent manually in Telegram"},
-        )
+        # Telegram Business API doesn't let bots send on a manager's
+        # behalf. We don't fake an outbound here — the manager copies
+        # the text into their own Telegram client, sends it manually,
+        # and the business_message handler captures that real OUT.
+        # Otherwise we'd double-count (synthetic + real) and skew the
+        # analyzer/profiler context. Just close the draft.
+        pass
 
     else:  # pragma: no cover
         raise ChannelSendError(f"Unknown channel {draft.channel}")

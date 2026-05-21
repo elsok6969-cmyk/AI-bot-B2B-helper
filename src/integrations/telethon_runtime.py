@@ -283,13 +283,16 @@ async def shutdown_all() -> None:
 
 
 async def send_message(*, user_id: UUID, peer_id: int, text: str) -> None:
-    client = _active.get(user_id)
-    if client is None or not client.is_connected():
+    # Reconnect if needed (ensure_listening takes its own lock, so call
+    # it OUTSIDE _lock_for here to avoid deadlock).
+    if user_id not in _active or not _active[user_id].is_connected():
         await ensure_listening(user_id)
+    # Now serialize against concurrent logout while we send.
+    async with _lock_for(user_id):
         client = _active.get(user_id)
-    if client is None:
-        raise TelethonError("Telethon client not available for this user")
-    await client.send_message(peer_id, text)
+        if client is None:
+            raise TelethonError("Telethon client not available for this user")
+        await client.send_message(peer_id, text)
 
 
 # ---------- event handler ------------------------------------------------

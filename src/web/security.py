@@ -44,11 +44,25 @@ def _expected_token() -> str:
 def _host_allowed(host_header: str) -> bool:
     if not host_header:
         return False
-    hostname = host_header.split(":", 1)[0].strip().lower()
+    host_header = host_header.strip().lower()
+    # IPv6 hosts arrive as `[::1]` or `[::1]:8090`. Strip the brackets +
+    # port before parsing.
+    if host_header.startswith("["):
+        # `[::1]:8090` → `::1`
+        bracket_close = host_header.find("]")
+        if bracket_close == -1:
+            return False
+        hostname = host_header[1:bracket_close]
+    elif host_header.count(":") > 1:
+        # Bare IPv6 like `::1` — no brackets, no port. Take as-is.
+        hostname = host_header
+    else:
+        # Hostname or IPv4 with optional :port.
+        hostname = host_header.split(":", 1)[0]
     if hostname in _DEFAULT_ALLOWED_HOSTS:
         return True
     try:
-        ip = ipaddress.ip_address(hostname.strip("[]"))
+        ip = ipaddress.ip_address(hostname)
     except ValueError:
         # Hostnames that aren't IPs are rejected — DNS rebinding defence.
         return False

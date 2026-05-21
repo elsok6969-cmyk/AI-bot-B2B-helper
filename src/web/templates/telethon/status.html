@@ -40,6 +40,11 @@
 
 {% if not account or not account.is_authorized %}
 <section class="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+  <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded p-3 mb-3 text-sm">
+    <strong>Сначала включи 2FA (cloud password)</strong> в Telegram → Settings → Privacy → Two-step verification.
+    Без него любой, у кого окажется доступ к этой машине + БД + <code>SECRETS_KEY</code>, сможет управлять
+    твоим ТГ-аккаунтом. С 2FA — нужен ещё и cloud password, который мы запросим отдельно.
+  </div>
   <h3 class="font-medium mb-2">Вход — шаг 1: телефон</h3>
   <form method="post" action="/telethon/login/start" class="flex gap-2 items-end">
     <label class="block flex-1">
