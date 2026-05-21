@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import html
 from typing import Any, cast
 from uuid import UUID
@@ -18,6 +17,7 @@ from src.db.models import Client, Conversation, MessageDirection, User
 from src.db.models import Message as MessageModel
 from src.db.session import SessionLocal
 from src.services.drafts import channel_for_source, generate_draft_for_message
+from src.utils.bg import spawn
 from src.utils.logger import logger
 
 _ANALYZER_CONTEXT_LIMIT = 10
@@ -127,7 +127,7 @@ async def process_inbound_message(
                     )
 
         if settings.drafts_autogenerate and channel_for_source(msg.source) is not None:
-            asyncio.create_task(generate_draft_for_message(message_id))
+            spawn(generate_draft_for_message(message_id), name=f"draft:{message_id}")
     except Exception:
         logger.exception("AI pipeline failed for message {}", message_id)
 

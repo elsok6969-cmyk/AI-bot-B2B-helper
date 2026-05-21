@@ -23,6 +23,15 @@
     </div>
   </header>
   <main class="max-w-6xl mx-auto px-4 py-6">
+    {% set _flash = take_flash(request) %}
+    {% if _flash %}
+    <div class="mb-4 rounded border px-3 py-2 text-sm
+      {% if _flash.level == 'error' %}bg-rose-50 border-rose-200 text-rose-800
+      {% elif _flash.level == 'success' %}bg-green-50 border-green-200 text-green-800
+      {% else %}bg-blue-50 border-blue-200 text-blue-800{% endif %}">
+      {{ _flash.message }}
+    </div>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
 </body>

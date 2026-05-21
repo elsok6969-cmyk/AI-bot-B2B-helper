@@ -1,4 +1,16 @@
-/* Minimal overrides; Tailwind via CDN handles the rest. */
-.message-in { @apply bg-white border border-slate-200 rounded-lg px-3 py-2; }
-.message-out { @apply bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 ml-12; }
+/* Tailwind via CDN doesn't process @apply directives — keep these as
+   plain CSS so they actually take effect. */
+.message-in {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+.message-out {
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-left: 3rem;
+}
 textarea { font-family: inherit; }

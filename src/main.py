@@ -42,7 +42,9 @@ async def run() -> None:
 
     await ensure_owner()
 
-    health_runner = await start_health_server()
+    health_runner = await start_health_server(
+        host=settings.health_host, port=settings.health_port
+    )
 
     web_server = None
     web_task: asyncio.Task[None] | None = None

@@ -26,6 +26,22 @@ class ChannelSendError(RuntimeError):
     """Raised when a channel adapter fails to send a message."""
 
 
+# Outbound caps. Telegram hard-limits a message to 4096 chars; SMTP has
+# no real limit but a 100k body is already a foot-gun (someone pasted a
+# log dump). We truncate with a clear marker rather than silently failing.
+_MAX_LEN_TG = 4096
+_MAX_LEN_EMAIL = 100_000
+
+
+def _safe_text(text: str, *, channel: DraftChannel) -> str:
+    """Strip NUL bytes (Postgres rejects them) and cap to channel limits."""
+    text = text.replace("\x00", "")
+    cap = _MAX_LEN_EMAIL if channel == DraftChannel.EMAIL else _MAX_LEN_TG
+    if len(text) > cap:
+        text = text[: cap - 20] + "\n…(обрезано)"
+    return text
+
+
 async def _store_outbound(
     session: AsyncSession,
     *,
@@ -53,12 +69,18 @@ async def _store_outbound(
     return msg
 
 
-async def send_draft(session: AsyncSession, draft_id: UUID, *, text_override: str | None = None) -> None:
+async def send_draft(
+    session: AsyncSession, draft_id: UUID, *, text_override: str | None = None
+) -> None:
     """Send a draft via its channel adapter and store the outbound message.
 
-    Raises ChannelSendError on failure; the caller should surface that to
-    the user without flipping the draft to SENT.
+    Acquires a row-level lock on the draft so two simultaneous clicks
+    only send once. Skips if already sent/rejected. Raises
+    ChannelSendError on failure; caller should surface to the user
+    without flipping the draft to SENT.
     """
+    from src.db.models import DraftStatus
+
     draft = await session.scalar(
         select(Draft)
         .where(Draft.id == draft_id)
@@ -67,19 +89,26 @@ async def send_draft(session: AsyncSession, draft_id: UUID, *, text_override: st
             selectinload(Draft.conversation),
             selectinload(Draft.user),
         )
+        .with_for_update()
     )
     if draft is None:
         raise ChannelSendError(f"Draft {draft_id} not found")
+    if draft.status != DraftStatus.PENDING:
+        # Already handled — make the operation idempotent. The previous
+        # request will have flipped status to SENT.
+        return
 
     text = (text_override or draft.selected_text or "").strip()
     if not text:
         raise ChannelSendError("Draft has no text to send")
+    text = _safe_text(text, channel=draft.channel)
 
     client = draft.client
     if client is None:
         raise ChannelSendError("Draft is missing client")
 
     if draft.channel == DraftChannel.TELETHON_USER:
+        from src.integrations.telethon_runtime import TelethonError
         from src.integrations.telethon_runtime import send_message as telethon_send
 
         if draft.user_id is None:
@@ -91,13 +120,18 @@ async def send_draft(session: AsyncSession, draft_id: UUID, *, text_override: st
             select(TelethonAccount).where(TelethonAccount.user_id == draft.user_id)
         )
         if account is None or not account.is_authorized:
-            raise ChannelSendError("Telethon account is not authorized")
+            raise ChannelSendError("Telethon-аккаунт не подключён — иди в /telethon")
 
-        await telethon_send(
-            user_id=draft.user_id,
-            peer_id=client.telegram_user_id,
-            text=text,
-        )
+        try:
+            await telethon_send(
+                user_id=draft.user_id,
+                peer_id=client.telegram_user_id,
+                text=text,
+            )
+        except TelethonError as exc:
+            raise ChannelSendError(str(exc)) from exc
+        except Exception as exc:
+            raise ChannelSendError(f"Telethon: {exc}") from exc
         await _store_outbound(
             session,
             conversation_id=draft.conversation_id,
@@ -107,7 +141,7 @@ async def send_draft(session: AsyncSession, draft_id: UUID, *, text_override: st
         )
 
     elif draft.channel == DraftChannel.EMAIL:
-        from src.integrations.mail_runtime import send_email
+        from src.integrations.mail_runtime import MailError, send_email
 
         if draft.user_id is None:
             raise ChannelSendError("Draft has no owning user for email send")
@@ -120,36 +154,49 @@ async def send_draft(session: AsyncSession, draft_id: UUID, *, text_override: st
         if mailbox is None:
             raise ChannelSendError("No active mailbox configured for this user")
 
+        # Thread the reply: link to the source Message-ID so it lands in
+        # the recipient's inbox under the original conversation.
+        in_reply_to = None
+        references = None
+        src_raw = draft.source_message.raw_payload if draft.source_message else None
+        if src_raw:
+            in_reply_to = src_raw.get("message_id")
+            references = src_raw.get("references") or in_reply_to
+
         subject = draft.subject or "Re:"
-        await send_email(
-            mailbox=mailbox,
-            to_address=client.email,
-            subject=subject,
-            body=text,
-        )
+        try:
+            await send_email(
+                mailbox=mailbox,
+                to_address=client.email,
+                subject=subject,
+                body=text,
+                in_reply_to=in_reply_to,
+                references=references,
+            )
+        except MailError as exc:
+            raise ChannelSendError(str(exc)) from exc
         await _store_outbound(
             session,
             conversation_id=draft.conversation_id,
             client_id=client.id,
             text=text,
             source=MessageSource.EMAIL,
-            raw_payload={"to": client.email, "subject": subject, "from": mailbox.email},
+            raw_payload={
+                "to": client.email,
+                "subject": subject,
+                "from": mailbox.email,
+                "in_reply_to": in_reply_to,
+            },
         )
 
     elif draft.channel == DraftChannel.TG_BUSINESS:
-        # Telegram Business API doesn't allow bots to send on a manager's
-        # behalf outside of a business_connection context. We don't attempt
-        # this from web — the manager replies in their own Telegram client
-        # and our handler captures it. Mark the draft as sent so it leaves
-        # the queue; record the outbound for history.
-        await _store_outbound(
-            session,
-            conversation_id=draft.conversation_id,
-            client_id=client.id,
-            text=text,
-            source=MessageSource.MANUAL_TEXT,
-            raw_payload={"note": "marked sent via web; manager sent manually in Telegram"},
-        )
+        # Telegram Business API doesn't let bots send on a manager's
+        # behalf. We don't fake an outbound here — the manager copies
+        # the text into their own Telegram client, sends it manually,
+        # and the business_message handler captures that real OUT.
+        # Otherwise we'd double-count (synthetic + real) and skew the
+        # analyzer/profiler context. Just close the draft.
+        pass
 
     else:  # pragma: no cover
         raise ChannelSendError(f"Unknown channel {draft.channel}")
@@ -175,6 +222,7 @@ async def send_freeform(
     text = text.strip()
     if not text:
         raise ChannelSendError("Empty message")
+    text = _safe_text(text, channel=channel)
 
     from src.db.models import ConversationPlatform
     from src.services.clients import resolve_or_create_conversation
@@ -189,16 +237,22 @@ async def send_freeform(
     )
 
     if channel == DraftChannel.TELETHON_USER:
+        from src.integrations.telethon_runtime import TelethonError
         from src.integrations.telethon_runtime import send_message as telethon_send
 
         account = await session.scalar(
             select(TelethonAccount).where(TelethonAccount.user_id == user.id)
         )
         if account is None or not account.is_authorized:
-            raise ChannelSendError("Telethon account is not authorized")
+            raise ChannelSendError("Telethon-аккаунт не подключён — иди в /telethon")
         if client.telegram_user_id is None:
-            raise ChannelSendError("Client has no telegram_user_id")
-        await telethon_send(user_id=user.id, peer_id=client.telegram_user_id, text=text)
+            raise ChannelSendError("У клиента нет Telegram ID")
+        try:
+            await telethon_send(user_id=user.id, peer_id=client.telegram_user_id, text=text)
+        except TelethonError as exc:
+            raise ChannelSendError(str(exc)) from exc
+        except Exception as exc:
+            raise ChannelSendError(f"Telethon: {exc}") from exc
         msg = await _store_outbound(
             session,
             conversation_id=conversation.id,
@@ -207,19 +261,20 @@ async def send_freeform(
             source=MessageSource.TELETHON_USER,
         )
     elif channel == DraftChannel.EMAIL:
-        from src.integrations.mail_runtime import send_email
+        from src.integrations.mail_runtime import MailError, send_email
 
         mailbox = await session.scalar(
             select(Mailbox).where(Mailbox.user_id == user.id, Mailbox.is_active.is_(True))
         )
         if mailbox is None:
-            raise ChannelSendError("No active mailbox")
+            raise ChannelSendError("Ящик не подключён — иди в /mail")
         if not client.email:
-            raise ChannelSendError("Client has no email")
+            raise ChannelSendError("У клиента нет email")
         subj = subject or "Сообщение"
-        await send_email(
-            mailbox=mailbox, to_address=client.email, subject=subj, body=text
-        )
+        try:
+            await send_email(mailbox=mailbox, to_address=client.email, subject=subj, body=text)
+        except MailError as exc:
+            raise ChannelSendError(str(exc)) from exc
         msg = await _store_outbound(
             session,
             conversation_id=conversation.id,

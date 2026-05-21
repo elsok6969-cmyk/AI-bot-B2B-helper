@@ -20,6 +20,7 @@ Mynota Client Assistant — macOS Launcher
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -147,10 +148,15 @@ def main() -> int:
         shutil.copy(ENV_EXAMPLE, ENV_FILE)
         ok(".env создан")
         warn("ОБЯЗАТЕЛЬНО отредактируй .env и укажи:")
-        print("   • BOT_TOKEN")
-        print("   • OWNER_TELEGRAM_ID")
+        print("   • BOT_TOKEN — токен от @BotFather")
+        print("   • OWNER_TELEGRAM_ID — твой Telegram user id (узнать через @userinfobot)")
         print("   • ANTHROPIC_API_KEY (или KIMI_API_KEY + AI_PROVIDER=kimi)")
-        print("   • POSTGRES_PASSWORD (любой пароль)")
+        print("   • POSTGRES_PASSWORD — любой пароль")
+        print()
+        print(f"   {C}Опционально (для веб-морды и личного аккаунта/почты):{NC}")
+        print("   • TELETHON_API_ID + TELETHON_API_HASH — с https://my.telegram.org")
+        print("     (нужны для чтения личного ТГ-аккаунта; без них Telethon просто не запустится)")
+        print("   • SECRETS_KEY — сгенерится автоматически на следующем шаге, если оставить пустым")
         print()
         input("Нажми Enter после редактирования .env, чтобы продолжить...")
 
@@ -255,6 +261,19 @@ def main() -> int:
     db_pass = env_vars.get("POSTGRES_PASSWORD", "mynota")
     db_name = env_vars.get("POSTGRES_DB", "mynota")
 
+    # Safety: identifiers must be alphanumeric/underscore. Passwords get
+    # SQL-quote-escaped before interpolation. Without this, a `'` in the
+    # password breaks CREATE USER, and a `;` in the user name = injection.
+    import re as _re
+
+    if not _re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", db_user):
+        error(f"POSTGRES_USER `{db_user}` некорректен — только латиница/_/цифры.")
+        return 1
+    if not _re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", db_name):
+        error(f"POSTGRES_DB `{db_name}` некорректен — только латиница/_/цифры.")
+        return 1
+    db_pass_sql = db_pass.replace("'", "''")
+
     # Дополнительно убеждаемся, что psql реально подключается
     for i in range(30):
         try:
@@ -282,7 +301,7 @@ def main() -> int:
 
     if not user_exists:
         try:
-            run(["psql", "-d", "postgres", "-c", f"CREATE USER {db_user} WITH PASSWORD '{db_pass}';"])
+            run(["psql", "-d", "postgres", "-c", f"CREATE USER {db_user} WITH PASSWORD '{db_pass_sql}';"])
         except subprocess.CalledProcessError:
             pass  # может уже существовать
 
@@ -364,6 +383,45 @@ def main() -> int:
     ok("Зависимости установлены")
 
     # ═══════════════════════════════════════════════════════════════════════════
+    # 7b. SECRETS_KEY (Fernet) — генерируем, если в .env пусто
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    step("Проверка SECRETS_KEY")
+
+    if not env_vars.get("SECRETS_KEY", "").strip():
+        info("SECRETS_KEY пуст — генерирую ключ Fernet...")
+        gen_proc = run(
+            [
+                str(venv_python),
+                "-c",
+                "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())",
+            ],
+            capture=True,
+        )
+        new_key = gen_proc.stdout.strip()
+        if not new_key:
+            error("Не удалось сгенерировать SECRETS_KEY")
+            return 1
+
+        lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
+        new_lines: list[str] = []
+        replaced = False
+        for line in lines:
+            if line.strip().startswith("SECRETS_KEY="):
+                new_lines.append(f"SECRETS_KEY={new_key}")
+                replaced = True
+            else:
+                new_lines.append(line)
+        if not replaced:
+            new_lines.append(f"SECRETS_KEY={new_key}")
+        ENV_FILE.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        env_vars["SECRETS_KEY"] = new_key
+        os.environ["SECRETS_KEY"] = new_key
+        ok("SECRETS_KEY записан в .env (нужен для шифрования пароля почты и сессии Telethon)")
+    else:
+        ok("SECRETS_KEY уже задан")
+
+    # ═══════════════════════════════════════════════════════════════════════════
     # 8. Alembic миграции
     # ═══════════════════════════════════════════════════════════════════════════
 
@@ -386,31 +444,63 @@ def main() -> int:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(("localhost", port)) == 0
 
-    if is_port_in_use(8080):
-        warn("Бот уже запущен (порт 8080 занят). Останавливаю старый процесс...")
-        try:
-            run(["lsof", "-ti:8080"], capture=True)
-            subprocess.run("lsof -ti:8080 | xargs kill -9 2>/dev/null", shell=True, check=False)
-            time.sleep(2)
-            ok("Старый процесс остановлен")
-        except Exception:
-            pass
-    else:
-        ok("Порт 8080 свободен")
+    for port in (8080, 8090):
+        if is_port_in_use(port):
+            warn(f"Порт {port} занят — останавливаю старый процесс...")
+            subprocess.run(
+                f"lsof -ti:{port} | xargs kill -9 2>/dev/null",
+                shell=True,
+                check=False,
+            )
+            time.sleep(1)
+            ok(f"Порт {port} освобождён")
+        else:
+            ok(f"Порт {port} свободен")
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # 10. Запуск бота
+    # 10. Запуск бота + автооткрытие веба
     # ═══════════════════════════════════════════════════════════════════════════
 
     step("Запуск бота")
 
     info("Бот стартует... Нажми Ctrl+C для остановки.")
+    info("Веб-морда будет на http://localhost:8090 (откроется автоматически).")
     print("═" * 60)
 
+    # Запускаем бота фоновым процессом, чтобы успеть открыть браузер,
+    # потом ждём его завершения тут же.
+    bot_proc = subprocess.Popen(
+        [str(venv_python), "-m", "src.main"],
+        cwd=str(PROJECT_DIR),
+    )
+
+    # Ждём, пока веб реально поднимется, и открываем браузер.
+    def _wait_for_web(port: int, timeout: float = 30.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if is_port_in_use(port):
+                return True
+            if bot_proc.poll() is not None:
+                return False
+            time.sleep(0.5)
+        return False
+
+    if _wait_for_web(8090):
+        ok("Веб-морда доступна на http://localhost:8090")
+        with contextlib.suppress(Exception):
+            subprocess.Popen(["open", "http://localhost:8090"])
+    else:
+        warn("Веб-морда не поднялась за 30 сек — открой http://localhost:8090 вручную, когда бот стартует")
+
     try:
-        run([str(venv_python), "-m", "src.main"], cwd=str(PROJECT_DIR))
+        bot_proc.wait()
     except KeyboardInterrupt:
-        info("Остановлено пользователем")
+        info("Останавливаю бота...")
+        bot_proc.terminate()
+        try:
+            bot_proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            bot_proc.kill()
 
     return 0
 

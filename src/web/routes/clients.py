@@ -6,15 +6,21 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
 from src.db.models import (
+    BusinessType,
     Client,
+    ClientStage,
+    ClientTemperature,
     Conversation,
+    Draft,
     DraftChannel,
+    DraftStatus,
     Message,
     Reminder,
     ReminderStatus,
 )
-from src.services.channels import ChannelSendError, send_freeform
+from src.services.channels import send_freeform
 from src.web.deps import SessionDep, UserDep, templates
+from src.web.flash import attach_flash_to_redirect
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -39,8 +45,23 @@ async def list_clients(
         )
     stmt = stmt.order_by(Client.last_touch_at.desc().nulls_last(), Client.created_at.desc())
     clients = (await session.execute(stmt)).scalars().all()
+
+    # Pending draft counts per client — render an "N черновиков" badge.
+    from sqlalchemy import func
+
+    counts_rows = (
+        await session.execute(
+            select(Draft.client_id, func.count(Draft.id))
+            .where(Draft.status == DraftStatus.PENDING)
+            .group_by(Draft.client_id)
+        )
+    ).all()
+    pending_by_client = {cid: n for cid, n in counts_rows}
+
     return templates.TemplateResponse(
-        request, "clients/list.html", {"clients": clients, "q": q or ""}
+        request,
+        "clients/list.html",
+        {"clients": clients, "q": q or "", "pending_by_client": pending_by_client},
     )
 
 
@@ -94,6 +115,18 @@ async def client_detail(
     if not channels:
         channels.append(("note", "Только заметка"))
 
+    pending_drafts = (
+        (
+            await session.execute(
+                select(Draft)
+                .where(Draft.client_id == client.id, Draft.status == DraftStatus.PENDING)
+                .order_by(Draft.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+
     return templates.TemplateResponse(
         request,
         "clients/detail.html",
@@ -102,8 +135,153 @@ async def client_detail(
             "messages": messages_chrono,
             "reminders": reminders,
             "channels": channels,
+            "pending_drafts": pending_drafts,
+            "stages": [s.value for s in ClientStage],
+            "temperatures": [t.value for t in ClientTemperature],
+            "business_types": [b.value for b in BusinessType],
         },
     )
+
+
+@router.post("/{slug}/update")
+async def update_client(
+    slug: str,
+    session: SessionDep,
+    user: UserDep,
+    name: str = Form(default=""),
+    email: str = Form(default=""),
+    stage: str = Form(default=""),
+    temperature: str = Form(default=""),
+    business_type: str = Form(default=""),
+) -> RedirectResponse:
+    client = await session.scalar(
+        select(Client).where(Client.org_id == user.org_id, Client.slug == slug)
+    )
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    if name.strip():
+        client.name = name.strip()
+    client.email = email.strip() or None
+    try:
+        if stage:
+            client.stage = ClientStage(stage)
+        if temperature:
+            client.temperature = ClientTemperature(temperature)
+        if business_type:
+            client.business_type = BusinessType(business_type)
+    except ValueError as exc:
+        resp = RedirectResponse(url=f"/clients/{slug}", status_code=303)
+        attach_flash_to_redirect(resp, f"Неверное значение: {exc}", level="error")
+        return resp
+
+    await session.commit()
+    resp = RedirectResponse(url=f"/clients/{slug}", status_code=303)
+    attach_flash_to_redirect(resp, "Карточка обновлена", level="success")
+    return resp
+
+
+@router.post("/{slug}/reminder")
+async def create_reminder_route(
+    slug: str,
+    session: SessionDep,
+    user: UserDep,
+    when: str = Form(...),
+    text: str = Form(...),
+) -> RedirectResponse:
+    from src.services.reminders import create_reminder, parse_when
+
+    client = await session.scalar(
+        select(Client).where(Client.org_id == user.org_id, Client.slug == slug)
+    )
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    due_at = parse_when(when)
+    resp = RedirectResponse(url=f"/clients/{slug}", status_code=303)
+    if due_at is None:
+        attach_flash_to_redirect(
+            resp,
+            "Не понял время. Примеры: завтра 10:00, через 3 дня, пятница 14:00.",
+            level="error",
+        )
+        return resp
+    await create_reminder(
+        session, client_id=client.id, user_id=user.id, due_at=due_at, text=text.strip()
+    )
+    await session.commit()
+    attach_flash_to_redirect(resp, f"Напоминание создано на {due_at:%d.%m %H:%M}", level="success")
+    return resp
+
+
+@router.post("/{slug}/note")
+async def add_note_route(
+    slug: str,
+    session: SessionDep,
+    user: UserDep,
+    text: str = Form(...),
+    direction: str = Form(default="in"),
+) -> RedirectResponse:
+    from src.db.models import (
+        ConversationPlatform,
+        MessageDirection,
+        MessageSource,
+    )
+    from src.db.models import (
+        Message as MessageModel,
+    )
+    from src.services.clients import resolve_or_create_conversation
+
+    client = await session.scalar(
+        select(Client).where(Client.org_id == user.org_id, Client.slug == slug)
+    )
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    text = text.strip().replace("\x00", "")
+    resp = RedirectResponse(url=f"/clients/{slug}", status_code=303)
+    if not text:
+        attach_flash_to_redirect(resp, "Текст заметки пуст", level="error")
+        return resp
+
+    dir_enum = MessageDirection.IN if direction == "in" else MessageDirection.OUT
+    convo = await resolve_or_create_conversation(
+        session,
+        client_id=client.id,
+        user_id=user.id,
+        platform=ConversationPlatform.MANUAL,
+    )
+    msg = MessageModel(
+        conversation_id=convo.id,
+        direction=dir_enum,
+        source=MessageSource.MANUAL_TEXT,
+        text=text,
+    )
+    session.add(msg)
+    await session.commit()
+    attach_flash_to_redirect(resp, "Заметка добавлена", level="success")
+    return resp
+
+
+@router.post("/{slug}/refresh-profile")
+async def refresh_profile(
+    slug: str, session: SessionDep, user: UserDep
+) -> RedirectResponse:
+    from src.ai.profiler import update_profile
+
+    client = await session.scalar(
+        select(Client).where(Client.org_id == user.org_id, Client.slug == slug)
+    )
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    resp = RedirectResponse(url=f"/clients/{slug}", status_code=303)
+    try:
+        await update_profile(session, client)
+        await session.commit()
+        attach_flash_to_redirect(resp, "Профиль обновлён", level="success")
+    except Exception as exc:
+        attach_flash_to_redirect(resp, f"Не удалось обновить профиль: {exc}", level="error")
+    return resp
 
 
 @router.post("/{slug}/send")
@@ -121,21 +299,27 @@ async def send_message_route(
     if client is None:
         raise HTTPException(status_code=404, detail="Client not found")
 
+    resp = RedirectResponse(url=f"/clients/{slug}", status_code=303)
+
+    # "note" is a pseudo-channel for note-only clients (no TG, no email):
+    # we just record the text as a MANUAL_TEXT message and bail.
+    if channel == "note":
+        return await add_note_route(slug, session, user, text=text, direction="out")
+
     try:
         ch = DraftChannel(channel)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Unknown channel: {channel}") from exc
+    except ValueError:
+        attach_flash_to_redirect(resp, f"Неизвестный канал: {channel}", level="error")
+        return resp
 
-    try:
-        await send_freeform(
-            session,
-            user=user,
-            client=client,
-            channel=ch,
-            text=text,
-            subject=subject,
-        )
-    except ChannelSendError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    return RedirectResponse(url=f"/clients/{slug}", status_code=303)
+    # ChannelSendError → flash banner via global handler.
+    await send_freeform(
+        session,
+        user=user,
+        client=client,
+        channel=ch,
+        text=text,
+        subject=subject,
+    )
+    attach_flash_to_redirect(resp, "Сообщение отправлено", level="success")
+    return resp

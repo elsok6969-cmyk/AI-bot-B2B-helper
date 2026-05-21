@@ -23,8 +23,11 @@ from uuid import UUID
 from sqlalchemy import select
 from telethon import TelegramClient, events
 from telethon.errors import (
+    FloodWaitError,
+    PasswordHashInvalidError,
     PhoneCodeExpiredError,
     PhoneCodeInvalidError,
+    PhoneNumberInvalidError,
     SessionPasswordNeededError,
 )
 from telethon.sessions import StringSession
@@ -45,6 +48,7 @@ from src.db.session import SessionLocal
 from src.services.ai_pipeline import process_inbound_message
 from src.services.clients import resolve_or_create_client, resolve_or_create_conversation
 from src.services.crypto import decrypt, encrypt
+from src.utils.bg import spawn
 from src.utils.logger import logger
 
 
@@ -105,7 +109,18 @@ async def login_start(user_id: UUID, phone: str) -> None:
 
         client = _build_client()
         await client.connect()
-        sent = await client.send_code_request(phone)
+        try:
+            sent = await client.send_code_request(phone)
+        except PhoneNumberInvalidError as exc:
+            with contextlib.suppress(Exception):
+                await client.disconnect()
+            raise TelethonError("Telegram отказал в коде: номер не валиден.") from exc
+        except FloodWaitError as exc:
+            with contextlib.suppress(Exception):
+                await client.disconnect()
+            raise TelethonError(
+                f"Слишком много попыток. Подожди {exc.seconds} сек и попробуй снова."
+            ) from exc
         _pending[user_id] = _PendingLogin(
             client=client, phone=phone, phone_code_hash=sent.phone_code_hash
         )
@@ -151,9 +166,16 @@ async def login_submit_code(user_id: UUID, code: str, password: str | None = Non
                             account.login_phase = "password_needed"
                             await session.commit()
                     return False
-                await pending.client.sign_in(password=password)
+                try:
+                    await pending.client.sign_in(password=password)
+                except PasswordHashInvalidError as exc:
+                    raise TelethonError("Неверный 2FA-пароль. Попробуй ещё раз.") from exc
             except (PhoneCodeInvalidError, PhoneCodeExpiredError) as exc:
-                raise TelethonError(str(exc)) from exc
+                raise TelethonError(f"Код не подошёл: {exc}") from exc
+            except FloodWaitError as exc:
+                raise TelethonError(
+                    f"Telegram попросил подождать {exc.seconds} сек."
+                ) from exc
 
             me = await pending.client.get_me()
             session_string = pending.client.session.save()
@@ -261,13 +283,16 @@ async def shutdown_all() -> None:
 
 
 async def send_message(*, user_id: UUID, peer_id: int, text: str) -> None:
-    client = _active.get(user_id)
-    if client is None or not client.is_connected():
+    # Reconnect if needed (ensure_listening takes its own lock, so call
+    # it OUTSIDE _lock_for here to avoid deadlock).
+    if user_id not in _active or not _active[user_id].is_connected():
         await ensure_listening(user_id)
+    # Now serialize against concurrent logout while we send.
+    async with _lock_for(user_id):
         client = _active.get(user_id)
-    if client is None:
-        raise TelethonError("Telethon client not available for this user")
-    await client.send_message(peer_id, text)
+        if client is None:
+            raise TelethonError("Telethon client not available for this user")
+        await client.send_message(peer_id, text)
 
 
 # ---------- event handler ------------------------------------------------
@@ -345,11 +370,26 @@ async def _ingest(
             platform=ConversationPlatform.TELEGRAM,
         )
 
+        # Dedupe: Telethon can re-deliver an event after a reconnect.
+        # raw_payload.id is the Telegram message id, unique per peer.
+        from sqlalchemy import select as _select
+
+        existing_id = await session.scalar(
+            _select(MessageModel.id).where(
+                MessageModel.conversation_id == conversation.id,
+                MessageModel.source == MessageSource.TELETHON_USER,
+                MessageModel.raw_payload["id"].astext == str(tg_msg.id),
+            )
+        )
+        if existing_id is not None:
+            return
+
+        text = (tg_msg.message or "").replace("\x00", "") or None
         stored = MessageModel(
             conversation_id=conversation.id,
             direction=direction,
             source=MessageSource.TELETHON_USER,
-            text=tg_msg.message or None,
+            text=text,
             raw_payload={
                 "id": tg_msg.id,
                 "peer_id": peer_id,
@@ -366,7 +406,10 @@ async def _ingest(
         await session.commit()
 
         if direction == MessageDirection.IN and _main_bot is not None:
-            asyncio.create_task(process_inbound_message(stored.id, _main_bot))
+            spawn(
+                process_inbound_message(stored.id, _main_bot),
+                name=f"pipeline:{stored.id}",
+            )
 
 
 # ---------- worker entry --------------------------------------------------
@@ -383,7 +426,19 @@ async def start_worker() -> None:
         if not is_configured():
             logger.warning("Telethon worker: SECRETS_KEY not set, skipping startup")
             return
+
+        # Reset half-finished login flows from the previous process —
+        # the in-memory _pending dict is gone, so the next code-submit
+        # would otherwise raise "Login session expired" with no UI hint.
         async with SessionLocal() as session:
+            stale = await session.execute(
+                select(TelethonAccount).where(TelethonAccount.login_phase != "idle")
+            )
+            for acc in stale.scalars():
+                acc.login_phase = "idle"
+                acc.phone_code_hash = None
+            await session.commit()
+
             ids = (
                 await session.execute(
                     select(TelethonAccount.user_id).where(TelethonAccount.is_authorized.is_(True))

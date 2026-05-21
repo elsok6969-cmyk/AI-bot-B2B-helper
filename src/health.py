@@ -17,7 +17,7 @@ async def _health(_: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
 
 
-async def start_health_server(host: str = "0.0.0.0", port: int = 8080) -> web.AppRunner:
+async def start_health_server(host: str = "127.0.0.1", port: int = 8080) -> web.AppRunner:
     app = web.Application()
     app.router.add_get("/health", _health)
     runner = web.AppRunner(app)

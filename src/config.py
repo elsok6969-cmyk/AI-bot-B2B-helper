@@ -44,8 +44,22 @@ class Settings(BaseSettings):
 
     # --- Web UI (local-only dashboard) ----------------------------------
     web_enabled: bool = True
-    web_host: str = "0.0.0.0"
+    # Loopback by default — there is no authentication on the dashboard, so
+    # binding to 0.0.0.0 would expose the user's Telegram/email control to
+    # anyone on the same network. Docker Compose re-publishes the port to
+    # 127.0.0.1 only; inside the container the app binds to 0.0.0.0 via the
+    # WEB_HOST env var so Compose port-forwarding works.
+    web_host: str = "127.0.0.1"
     web_port: int = 8090
+    # Optional shared-secret protecting the web UI. If non-empty, every
+    # request must carry it (cookie `mynota_token` or header
+    # `X-Mynota-Token`). Set to a long random string for any network
+    # exposure (LAN, VPN, tailscale, ngrok, etc.).
+    web_access_token: SecretStr = SecretStr("")
+    # Health endpoint host — 127.0.0.1 for local runs, 0.0.0.0 inside
+    # Docker (set in docker-compose.yml) so Compose port-forwarding works.
+    health_host: str = "127.0.0.1"
+    health_port: int = 8080
 
     # --- Secrets vault: Fernet key for encrypting credentials in DB ----
     # If left empty, integrations requiring stored creds (Telethon session,

@@ -49,12 +49,22 @@
     </div>
     {% endif %}
 
+    {% if d.channel.value == 'tg_business' %}
+    <div class="bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600 mb-2">
+      Канал <b>Telegram Business</b> — бот не может отправить за тебя.
+      Скопируй текст, отправь в Telegram руками. Реальный исход подтянется сам;
+      кнопка ниже просто уберёт черновик из очереди.
+    </div>
+    {% endif %}
     <form method="post" action="/drafts/{{ d.id }}/send" class="space-y-2">
       {% if d.subject %}<input type="text" name="subject" value="{{ d.subject }}" class="w-full text-sm rounded border-slate-300 px-2 py-1" disabled>{% endif %}
-      <textarea name="text" rows="4" class="w-full text-sm rounded border-slate-300 px-2 py-1">{{ d.selected_text or "" }}</textarea>
+      <textarea name="text" rows="4" required maxlength="100000"
+                class="w-full text-sm rounded border-slate-300 px-2 py-1">{{ d.selected_text or "" }}</textarea>
       <div class="flex gap-2">
-        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm rounded px-3 py-1.5">Отправить</button>
-        <button type="submit" formaction="/drafts/{{ d.id }}/reject" class="bg-slate-200 hover:bg-slate-300 text-slate-800 text-sm rounded px-3 py-1.5">Отклонить</button>
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm rounded px-3 py-1.5">
+          {% if d.channel.value == 'tg_business' %}Я отправил{% else %}Отправить{% endif %}
+        </button>
+        <button type="submit" formaction="/drafts/{{ d.id }}/reject" formnovalidate class="bg-slate-200 hover:bg-slate-300 text-slate-800 text-sm rounded px-3 py-1.5">Отклонить</button>
       </div>
     </form>
     {% else %}

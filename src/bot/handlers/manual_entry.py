@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import html
 from datetime import UTC, datetime
 from io import BytesIO
@@ -32,6 +31,7 @@ from src.services.clients import (
     create_manual_client,
     resolve_or_create_conversation,
 )
+from src.utils.bg import spawn
 from src.utils.logger import logger
 
 router = Router(name="manual_entry")
@@ -441,7 +441,10 @@ async def on_manual_content(
             f"{preview_html}\n\n"
             "Запускаю анализ и обновление профиля..."
         )
-        asyncio.create_task(process_inbound_message(stored.id, bot, update_profile_after=True))
+        spawn(
+            process_inbound_message(stored.id, bot, update_profile_after=True),
+            name=f"pipeline:{stored.id}",
+        )
     else:
         await message.answer(
             f"✅ Записал отправленное клиенту <b>{html.escape(client.name or client.slug)}</b>:\n"

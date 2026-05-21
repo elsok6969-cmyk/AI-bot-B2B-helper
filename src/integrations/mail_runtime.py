@@ -11,11 +11,13 @@ SMTP sending is exposed as ``send_email`` and used by ``services.channels``.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import email
+import ipaddress
 import re
+import socket
 from datetime import UTC, datetime
+from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.utils import formatdate, getaddresses, make_msgid, parseaddr, parsedate_to_datetime
 from typing import Any
@@ -42,6 +44,7 @@ from src.db.session import SessionLocal
 from src.services.ai_pipeline import process_inbound_message
 from src.services.clients import resolve_or_create_conversation
 from src.services.crypto import decrypt, is_configured
+from src.utils.bg import spawn
 from src.utils.logger import logger
 from src.utils.slug import slugify
 
@@ -55,6 +58,49 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 def looks_like_email(value: str | None) -> bool:
     return bool(value and _EMAIL_RE.match(value.strip()))
+
+
+def assert_safe_host(host: str) -> None:
+    """Block IMAP/SMTP connections to internal IPs and obvious abuse targets.
+
+    Even on a single-user local install, a malicious page that tricks the
+    user into pasting ``169.254.169.254`` (cloud metadata) or ``127.0.0.1``
+    can exfiltrate the encrypted Yandex password to whatever local
+    listener it spins up. We resolve the hostname and reject if it
+    points anywhere that isn't public unicast.
+    """
+    host = (host or "").strip().lower()
+    if not host:
+        raise MailError("Empty IMAP/SMTP host")
+
+    # Block obvious junk before DNS.
+    if host in {"localhost", "ip6-localhost", "ip6-loopback"}:
+        raise MailError(f"Refusing to connect to {host}")
+
+    try:
+        addrs = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise MailError(f"Cannot resolve {host}: {exc}") from exc
+
+    for family, _, _, _, sockaddr in addrs:
+        try:
+            ip_str = sockaddr[0]
+            ip = ipaddress.ip_address(ip_str)
+        except (IndexError, ValueError):
+            continue
+        if (
+            ip.is_loopback
+            or ip.is_private
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise MailError(
+                f"Host {host} resolves to {ip} — refusing to connect "
+                "(private/loopback/link-local)."
+            )
+        del family  # silence unused
 
 
 # ---------- IMAP poller ---------------------------------------------------
@@ -78,11 +124,39 @@ async def poll_all_mailboxes(bot: Any = None) -> None:
             logger.exception("IMAP poll failed for {}", mb.email)
 
 
+_MAX_RFC822_BYTES = 10 * 1024 * 1024  # 10 MB — anything bigger is almost
+#                                        certainly attachments we don't want
+#                                        in the dashboard.
+
+
 async def _poll_one(mailbox: Mailbox, bot: Any) -> None:
-    password = decrypt(mailbox.password_encrypted)
-    client = aioimaplib.IMAP4_SSL(host=mailbox.imap_host, port=mailbox.imap_port, timeout=30)
-    await client.wait_hello_from_server()
     try:
+        password = decrypt(mailbox.password_encrypted)
+    except Exception:
+        logger.warning(
+            "Cannot decrypt password for mailbox {} — was SECRETS_KEY rotated? "
+            "Marking mailbox inactive.",
+            mailbox.email,
+        )
+        async with SessionLocal() as session:
+            fresh = await session.get(Mailbox, mailbox.id)
+            if fresh is not None:
+                fresh.is_active = False
+                await session.commit()
+        return
+
+    try:
+        assert_safe_host(mailbox.imap_host)
+    except MailError as exc:
+        logger.warning("Skipping IMAP poll for {}: {}", mailbox.email, exc)
+        return
+
+    client: aioimaplib.IMAP4_SSL | None = None
+    try:
+        client = aioimaplib.IMAP4_SSL(
+            host=mailbox.imap_host, port=mailbox.imap_port, timeout=30
+        )
+        await client.wait_hello_from_server()
         await client.login(mailbox.email, password)
         await client.select("INBOX")
 
@@ -114,6 +188,21 @@ async def _poll_one(mailbox: Mailbox, bot: Any) -> None:
         highest_uid = mailbox.last_uid_seen
         for uid in uid_list:
             try:
+                # Pre-flight size check so we don't pull a 50 MB newsletter.
+                status_size, size_data = await client.uid(
+                    "fetch", str(uid), "(RFC822.SIZE)"
+                )
+                msg_size = _parse_rfc822_size(size_data)
+                if msg_size is not None and msg_size > _MAX_RFC822_BYTES:
+                    logger.info(
+                        "Skipping UID {} from {}: {} bytes > cap",
+                        uid,
+                        mailbox.email,
+                        msg_size,
+                    )
+                    highest_uid = max(highest_uid, uid)
+                    continue
+
                 status, msg_data = await client.uid("fetch", str(uid), "(RFC822)")
                 if status != "OK":
                     continue
@@ -136,8 +225,22 @@ async def _poll_one(mailbox: Mailbox, bot: Any) -> None:
         else:
             await _touch_polled(mailbox.id)
     finally:
-        with contextlib.suppress(Exception):
-            await client.logout()
+        if client is not None:
+            with contextlib.suppress(Exception):
+                await client.logout()
+
+
+def _parse_rfc822_size(data: Any) -> int | None:
+    if not data:
+        return None
+    for item in data:
+        if isinstance(item, bytes):
+            item = item.decode(errors="ignore")
+        if isinstance(item, str) and "RFC822.SIZE" in item:
+            m = re.search(r"RFC822\.SIZE\s+(\d+)", item)
+            if m:
+                return int(m.group(1))
+    return None
 
 
 async def _touch_polled(mailbox_id: UUID) -> None:
@@ -174,20 +277,57 @@ def _decode_text(part: email.message.Message) -> str:
     return str(payload)
 
 
+def _strip_html(html_body: str) -> str:
+    # Drop <script> and <style> wholesale, then strip tags and decode
+    # entities. Crude but enough for triage in the dashboard.
+    import html as html_mod
+
+    html_body = re.sub(
+        r"<(script|style)\b[^>]*>.*?</\1>", "", html_body, flags=re.IGNORECASE | re.DOTALL
+    )
+    text = re.sub(r"<[^>]+>", "", html_body)
+    text = html_mod.unescape(text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def _extract_text(msg: email.message.Message) -> str:
     if msg.is_multipart():
         for part in msg.walk():
             ctype = part.get_content_type()
             disp = (part.get("Content-Disposition") or "").lower()
             if ctype == "text/plain" and "attachment" not in disp:
-                return _decode_text(part).strip()
-        # fallback to HTML, strip very crudely
+                return _scrub(_decode_text(part).strip())
         for part in msg.walk():
             if part.get_content_type() == "text/html":
-                html_body = _decode_text(part)
-                return re.sub(r"<[^>]+>", "", html_body).strip()
+                return _scrub(_strip_html(_decode_text(part)))
         return ""
-    return _decode_text(msg).strip()
+
+    # Single-part: route by content type so an HTML-only email isn't
+    # rendered raw with all its tags showing.
+    ctype = msg.get_content_type()
+    if ctype == "text/html":
+        return _scrub(_strip_html(_decode_text(msg)))
+    return _scrub(_decode_text(msg).strip())
+
+
+def _scrub(text: str) -> str:
+    """Drop NUL bytes (Postgres rejects them in TEXT) and other control chars
+    that would corrupt logging or display."""
+    if not text:
+        return text
+    # NUL is the only one Postgres refuses; the rest are visual noise but
+    # technically valid in TEXT columns, so just strip NULs here.
+    return text.replace("\x00", "")
+
+
+def _decode_mime_header(raw: str | None) -> str:
+    """Decode RFC2047 encoded-words (=?UTF-8?B?...?=) into a plain string."""
+    if not raw:
+        return ""
+    try:
+        return _scrub(str(make_header(decode_header(raw))).strip())
+    except Exception:
+        return _scrub(raw.strip())
 
 
 async def _store_inbound_email(
@@ -200,9 +340,12 @@ async def _store_inbound_email(
     if from_addr == mailbox.email.lower():
         return
 
-    subject = (parsed.get("Subject") or "").strip()
+    subject = _decode_mime_header(parsed.get("Subject"))
     text_body = _extract_text(parsed)
     received_at = _parse_date(parsed.get("Date"))
+    message_id_header = (parsed.get("Message-ID") or "").strip() or None
+    in_reply_to = (parsed.get("In-Reply-To") or "").strip() or None
+    references = (parsed.get("References") or "").strip() or None
 
     to_addrs = [a[1].lower() for a in getaddresses([parsed.get("To", "")]) if a[1]]
     cc_addrs = [a[1].lower() for a in getaddresses([parsed.get("Cc", "")]) if a[1]]
@@ -223,6 +366,20 @@ async def _store_inbound_email(
             platform=ConversationPlatform.EMAIL,
         )
 
+        # Dedupe: if we've already ingested this RFC822 Message-ID into
+        # this conversation, skip. Falls back to (uid + mailbox) when the
+        # header is missing.
+        if message_id_header:
+            existing = await session.scalar(
+                select(MessageModel.id).where(
+                    MessageModel.conversation_id == conversation.id,
+                    MessageModel.raw_payload["message_id"].astext == message_id_header,
+                )
+            )
+            if existing is not None:
+                logger.debug("Skipping duplicate email message_id={}", message_id_header)
+                return
+
         stored = MessageModel(
             conversation_id=conversation.id,
             direction=MessageDirection.IN,
@@ -234,7 +391,9 @@ async def _store_inbound_email(
                 "from": from_addr,
                 "to": to_addrs,
                 "cc": cc_addrs,
-                "message_id": parsed.get("Message-ID"),
+                "message_id": message_id_header,
+                "in_reply_to": in_reply_to,
+                "references": references,
             },
             sent_at=received_at,
         )
@@ -245,7 +404,7 @@ async def _store_inbound_email(
         message_id = stored.id
 
     if bot is not None:
-        asyncio.create_task(process_inbound_message(message_id, bot))
+        spawn(process_inbound_message(message_id, bot), name=f"pipeline:{message_id}")
 
 
 def _parse_date(value: str | None) -> datetime | None:
@@ -299,9 +458,18 @@ async def _resolve_or_create_email_client(
 # ---------- SMTP sender --------------------------------------------------
 
 
-async def send_email(*, mailbox: Mailbox, to_address: str, subject: str, body: str) -> None:
+async def send_email(
+    *,
+    mailbox: Mailbox,
+    to_address: str,
+    subject: str,
+    body: str,
+    in_reply_to: str | None = None,
+    references: str | None = None,
+) -> None:
     if not looks_like_email(to_address):
         raise MailError(f"Invalid recipient email: {to_address}")
+    assert_safe_host(mailbox.smtp_host)
     password = decrypt(mailbox.password_encrypted)
 
     msg = EmailMessage()
@@ -309,15 +477,27 @@ async def send_email(*, mailbox: Mailbox, to_address: str, subject: str, body: s
     msg["To"] = to_address
     msg["Subject"] = subject
     msg["Date"] = formatdate(localtime=True)
-    msg["Message-ID"] = make_msgid()
+    # Use the sender's mailbox domain so SPF/DKIM-checking receivers (Yandex
+    # included) don't flag the message — default make_msgid() uses the local
+    # hostname, often `localhost.localdomain`.
+    msg["Message-ID"] = make_msgid(domain=mailbox.email.split("@", 1)[-1] or None)
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+    if references:
+        msg["References"] = references
     msg.set_content(body, charset="utf-8")
 
-    await aiosmtplib.send(
-        msg,
-        hostname=mailbox.smtp_host,
-        port=mailbox.smtp_port,
-        username=mailbox.email,
-        password=password,
-        use_tls=True,
-        timeout=30,
-    )
+    try:
+        await aiosmtplib.send(
+            msg,
+            hostname=mailbox.smtp_host,
+            port=mailbox.smtp_port,
+            username=mailbox.email,
+            password=password,
+            use_tls=True,
+            timeout=30,
+        )
+    except aiosmtplib.SMTPException as exc:
+        # Bubble to channels.send_draft as a ChannelSendError-equivalent the
+        # web layer can turn into a flash. Wrap to keep the API consistent.
+        raise MailError(f"SMTP: {exc}") from exc

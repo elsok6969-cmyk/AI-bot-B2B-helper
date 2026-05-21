@@ -26,7 +26,11 @@
     <tbody class="divide-y divide-slate-100">
       {% for c in clients %}
       <tr class="hover:bg-slate-50">
-        <td class="px-3 py-2"><a href="/clients/{{ c.slug }}" class="font-medium text-slate-900 hover:text-blue-700">{{ c.name or c.slug }}</a></td>
+        <td class="px-3 py-2">
+          <a href="/clients/{{ c.slug }}" class="font-medium text-slate-900 hover:text-blue-700">{{ c.name or c.slug }}</a>
+          {% set n = pending_by_client.get(c.id, 0) %}
+          {% if n %}<span class="ml-2 inline-block bg-amber-100 text-amber-800 text-xs px-2 rounded-full">{{ n }} черн.</span>{% endif %}
+        </td>
         <td class="px-3 py-2 text-slate-500 font-mono text-xs">{{ c.slug }}</td>
         <td class="px-3 py-2 text-xs text-slate-600">
           {% if c.telegram_username %}@{{ c.telegram_username }}{% endif %}
@@ -35,9 +39,9 @@
         </td>
         <td class="px-3 py-2 text-xs">{{ c.stage.value }}</td>
         <td class="px-3 py-2 text-xs">
-          {% if c.temperature.value == "hot" %}<span class="text-rose-600">🔥</span>
-          {% elif c.temperature.value == "warm" %}<span class="text-amber-600">⚠</span>
-          {% else %}<span class="text-slate-400">·</span>{% endif %}
+          {% if c.temperature.value == "hot" %}<span class="text-rose-600">hot</span>
+          {% elif c.temperature.value == "warm" %}<span class="text-amber-600">warm</span>
+          {% else %}<span class="text-slate-400">cold</span>{% endif %}
         </td>
         <td class="px-3 py-2 text-xs text-slate-500">{{ c.last_touch_at.strftime("%d.%m %H:%M") if c.last_touch_at else "—" }}</td>
       </tr>
