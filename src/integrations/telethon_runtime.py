@@ -345,11 +345,26 @@ async def _ingest(
             platform=ConversationPlatform.TELEGRAM,
         )
 
+        # Dedupe: Telethon can re-deliver an event after a reconnect.
+        # raw_payload.id is the Telegram message id, unique per peer.
+        from sqlalchemy import select as _select
+
+        existing_id = await session.scalar(
+            _select(MessageModel.id).where(
+                MessageModel.conversation_id == conversation.id,
+                MessageModel.source == MessageSource.TELETHON_USER,
+                MessageModel.raw_payload["id"].astext == str(tg_msg.id),
+            )
+        )
+        if existing_id is not None:
+            return
+
+        text = (tg_msg.message or "").replace("\x00", "") or None
         stored = MessageModel(
             conversation_id=conversation.id,
             direction=direction,
             source=MessageSource.TELETHON_USER,
-            text=tg_msg.message or None,
+            text=text,
             raw_payload={
                 "id": tg_msg.id,
                 "peer_id": peer_id,

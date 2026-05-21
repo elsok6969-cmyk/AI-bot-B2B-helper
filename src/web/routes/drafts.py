@@ -8,9 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from src.db.models import Draft, DraftStatus
-from src.services.channels import ChannelSendError, send_draft
+from src.services.channels import send_draft
 from src.services.drafts import reject
 from src.web.deps import SessionDep, templates
+from src.web.flash import attach_flash_to_redirect
 
 router = APIRouter(prefix="/drafts", tags=["drafts"])
 
@@ -46,11 +47,11 @@ async def list_drafts(
 async def send_draft_route(
     draft_id: UUID, session: SessionDep, text: str = Form(...)
 ) -> RedirectResponse:
-    try:
-        await send_draft(session, draft_id, text_override=text)
-    except ChannelSendError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return RedirectResponse(url="/drafts", status_code=303)
+    # ChannelSendError is converted to a flash banner by the global handler.
+    await send_draft(session, draft_id, text_override=text)
+    resp = RedirectResponse(url="/drafts", status_code=303)
+    attach_flash_to_redirect(resp, "Сообщение отправлено", level="success")
+    return resp
 
 
 @router.post("/{draft_id}/reject")

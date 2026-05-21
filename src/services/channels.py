@@ -26,6 +26,22 @@ class ChannelSendError(RuntimeError):
     """Raised when a channel adapter fails to send a message."""
 
 
+# Outbound caps. Telegram hard-limits a message to 4096 chars; SMTP has
+# no real limit but a 100k body is already a foot-gun (someone pasted a
+# log dump). We truncate with a clear marker rather than silently failing.
+_MAX_LEN_TG = 4096
+_MAX_LEN_EMAIL = 100_000
+
+
+def _safe_text(text: str, *, channel: DraftChannel) -> str:
+    """Strip NUL bytes (Postgres rejects them) and cap to channel limits."""
+    text = text.replace("\x00", "")
+    cap = _MAX_LEN_EMAIL if channel == DraftChannel.EMAIL else _MAX_LEN_TG
+    if len(text) > cap:
+        text = text[: cap - 20] + "\n…(обрезано)"
+    return text
+
+
 async def _store_outbound(
     session: AsyncSession,
     *,
@@ -53,12 +69,18 @@ async def _store_outbound(
     return msg
 
 
-async def send_draft(session: AsyncSession, draft_id: UUID, *, text_override: str | None = None) -> None:
+async def send_draft(
+    session: AsyncSession, draft_id: UUID, *, text_override: str | None = None
+) -> None:
     """Send a draft via its channel adapter and store the outbound message.
 
-    Raises ChannelSendError on failure; the caller should surface that to
-    the user without flipping the draft to SENT.
+    Acquires a row-level lock on the draft so two simultaneous clicks
+    only send once. Skips if already sent/rejected. Raises
+    ChannelSendError on failure; caller should surface to the user
+    without flipping the draft to SENT.
     """
+    from src.db.models import DraftStatus
+
     draft = await session.scalar(
         select(Draft)
         .where(Draft.id == draft_id)
@@ -67,13 +89,19 @@ async def send_draft(session: AsyncSession, draft_id: UUID, *, text_override: st
             selectinload(Draft.conversation),
             selectinload(Draft.user),
         )
+        .with_for_update()
     )
     if draft is None:
         raise ChannelSendError(f"Draft {draft_id} not found")
+    if draft.status != DraftStatus.PENDING:
+        # Already handled — make the operation idempotent. The previous
+        # request will have flipped status to SENT.
+        return
 
     text = (text_override or draft.selected_text or "").strip()
     if not text:
         raise ChannelSendError("Draft has no text to send")
+    text = _safe_text(text, channel=draft.channel)
 
     client = draft.client
     if client is None:
@@ -175,6 +203,7 @@ async def send_freeform(
     text = text.strip()
     if not text:
         raise ChannelSendError("Empty message")
+    text = _safe_text(text, channel=channel)
 
     from src.db.models import ConversationPlatform
     from src.services.clients import resolve_or_create_conversation

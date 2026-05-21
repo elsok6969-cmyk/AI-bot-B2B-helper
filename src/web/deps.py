@@ -6,16 +6,30 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from jinja2 import select_autoescape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import User
+from src.db.models import User, UserRole
 from src.db.session import SessionLocal
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+# Pin autoescape explicitly — don't rely on the implicit default. Stored
+# values from Telegram/email are user-controlled, so any rendering must
+# escape, period. Future contributors: do not use `|safe` on dynamic data.
+templates.env.autoescape = select_autoescape(
+    enabled_extensions=("html", "htm", "xml"),
+    default_for_string=True,
+)
+
+
+class NoOwnerError(Exception):
+    """Raised when the DB has no users yet — handled by a global handler
+    that renders the onboarding/welcome page instead of a 500."""
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -27,13 +41,17 @@ SessionDep = Annotated[AsyncSession, Depends(get_db)]
 
 
 async def get_default_user(session: SessionDep) -> User:
-    """Return the first owner (no auth — local-only deployment)."""
-    user = await session.scalar(select(User).order_by(User.created_at).limit(1))
+    """Return the org owner. Falls back to the first user if no owner
+    is flagged (older deployments). Raises NoOwnerError on empty DB —
+    a global handler in app.py renders the welcome page.
+    """
+    user = await session.scalar(
+        select(User).where(User.role == UserRole.OWNER).order_by(User.created_at).limit(1)
+    )
     if user is None:
-        raise HTTPException(
-            status_code=503,
-            detail="No users in DB yet — start the bot and send /start once.",
-        )
+        user = await session.scalar(select(User).order_by(User.created_at).limit(1))
+    if user is None:
+        raise NoOwnerError()
     return user
 
 
@@ -42,3 +60,9 @@ UserDep = Annotated[User, Depends(get_default_user)]
 
 def is_htmx(request: Request) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
+
+
+def render_welcome() -> HTMLResponse:
+    """Onboarding page shown when no owner exists in the DB yet."""
+    welcome = (_TEMPLATES_DIR / "welcome.html").read_text(encoding="utf-8")
+    return HTMLResponse(welcome, status_code=200)

@@ -174,20 +174,47 @@ def _decode_text(part: email.message.Message) -> str:
     return str(payload)
 
 
+def _strip_html(html_body: str) -> str:
+    # Drop <script> and <style> wholesale, then strip tags and decode
+    # entities. Crude but enough for triage in the dashboard.
+    import html as html_mod
+
+    html_body = re.sub(
+        r"<(script|style)\b[^>]*>.*?</\1>", "", html_body, flags=re.IGNORECASE | re.DOTALL
+    )
+    text = re.sub(r"<[^>]+>", "", html_body)
+    text = html_mod.unescape(text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def _extract_text(msg: email.message.Message) -> str:
     if msg.is_multipart():
         for part in msg.walk():
             ctype = part.get_content_type()
             disp = (part.get("Content-Disposition") or "").lower()
             if ctype == "text/plain" and "attachment" not in disp:
-                return _decode_text(part).strip()
-        # fallback to HTML, strip very crudely
+                return _scrub(_decode_text(part).strip())
         for part in msg.walk():
             if part.get_content_type() == "text/html":
-                html_body = _decode_text(part)
-                return re.sub(r"<[^>]+>", "", html_body).strip()
+                return _scrub(_strip_html(_decode_text(part)))
         return ""
-    return _decode_text(msg).strip()
+
+    # Single-part: route by content type so an HTML-only email isn't
+    # rendered raw with all its tags showing.
+    ctype = msg.get_content_type()
+    if ctype == "text/html":
+        return _scrub(_strip_html(_decode_text(msg)))
+    return _scrub(_decode_text(msg).strip())
+
+
+def _scrub(text: str) -> str:
+    """Drop NUL bytes (Postgres rejects them in TEXT) and other control chars
+    that would corrupt logging or display."""
+    if not text:
+        return text
+    # NUL is the only one Postgres refuses; the rest are visual noise but
+    # technically valid in TEXT columns, so just strip NULs here.
+    return text.replace("\x00", "")
 
 
 async def _store_inbound_email(
@@ -200,9 +227,10 @@ async def _store_inbound_email(
     if from_addr == mailbox.email.lower():
         return
 
-    subject = (parsed.get("Subject") or "").strip()
+    subject = _scrub((parsed.get("Subject") or "").strip())
     text_body = _extract_text(parsed)
     received_at = _parse_date(parsed.get("Date"))
+    message_id_header = (parsed.get("Message-ID") or "").strip() or None
 
     to_addrs = [a[1].lower() for a in getaddresses([parsed.get("To", "")]) if a[1]]
     cc_addrs = [a[1].lower() for a in getaddresses([parsed.get("Cc", "")]) if a[1]]
@@ -223,6 +251,20 @@ async def _store_inbound_email(
             platform=ConversationPlatform.EMAIL,
         )
 
+        # Dedupe: if we've already ingested this RFC822 Message-ID into
+        # this conversation, skip. Falls back to (uid + mailbox) when the
+        # header is missing.
+        if message_id_header:
+            existing = await session.scalar(
+                select(MessageModel.id).where(
+                    MessageModel.conversation_id == conversation.id,
+                    MessageModel.raw_payload["message_id"].astext == message_id_header,
+                )
+            )
+            if existing is not None:
+                logger.debug("Skipping duplicate email message_id={}", message_id_header)
+                return
+
         stored = MessageModel(
             conversation_id=conversation.id,
             direction=MessageDirection.IN,
@@ -234,7 +276,7 @@ async def _store_inbound_email(
                 "from": from_addr,
                 "to": to_addrs,
                 "cc": cc_addrs,
-                "message_id": parsed.get("Message-ID"),
+                "message_id": message_id_header,
             },
             sent_at=received_at,
         )

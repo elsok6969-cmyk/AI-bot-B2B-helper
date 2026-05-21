@@ -27,6 +27,11 @@ services:
     env_file: .env
     environment:
       TZ: ${TZ:-Europe/Moscow}
+      # Inside the container, listen on all interfaces so Compose's
+      # 127.0.0.1:PORT mapping works. The host binding (below) keeps
+      # access restricted to localhost on the host machine.
+      WEB_HOST: 0.0.0.0
+      HEALTH_HOST: 0.0.0.0
     ports:
       - "127.0.0.1:8080:8080"
       - "127.0.0.1:8090:8090"

@@ -23,8 +23,8 @@
              class="w-full rounded border-slate-300 px-2 py-1">
     </label>
     <label class="block">
-      <span class="text-xs text-slate-500 block">Пароль приложения</span>
-      <input type="password" name="password" value="" {% if not mailbox %}required{% endif %} placeholder="{% if mailbox %}(не показывается; оставить пустым = не менять — НЕ поддерживается){% endif %}"
+      <span class="text-xs text-slate-500 block">Пароль приложения{% if mailbox %} (оставь пустым, чтобы не менять){% endif %}</span>
+      <input type="password" name="password" value="" {% if not mailbox %}required{% endif %} placeholder="{% if mailbox %}не менять{% else %}xxxxxxxxxxxxxxxx (16 строчных букв){% endif %}"
              class="w-full rounded border-slate-300 px-2 py-1">
     </label>
     <label class="block">

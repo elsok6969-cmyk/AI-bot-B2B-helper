@@ -13,8 +13,9 @@ from src.db.models import (
     Reminder,
     ReminderStatus,
 )
-from src.services.channels import ChannelSendError, send_freeform
+from src.services.channels import send_freeform
 from src.web.deps import SessionDep, UserDep, templates
+from src.web.flash import attach_flash_to_redirect
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -126,16 +127,15 @@ async def send_message_route(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Unknown channel: {channel}") from exc
 
-    try:
-        await send_freeform(
-            session,
-            user=user,
-            client=client,
-            channel=ch,
-            text=text,
-            subject=subject,
-        )
-    except ChannelSendError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    return RedirectResponse(url=f"/clients/{slug}", status_code=303)
+    # ChannelSendError → flash banner via global handler.
+    await send_freeform(
+        session,
+        user=user,
+        client=client,
+        channel=ch,
+        text=text,
+        subject=subject,
+    )
+    resp = RedirectResponse(url=f"/clients/{slug}", status_code=303)
+    attach_flash_to_redirect(resp, "Сообщение отправлено", level="success")
+    return resp
