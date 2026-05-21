@@ -63,6 +63,15 @@ def is_htmx(request: Request) -> bool:
 
 
 def render_welcome() -> HTMLResponse:
-    """Onboarding page shown when no owner exists in the DB yet."""
-    welcome = (_TEMPLATES_DIR / "welcome.html").read_text(encoding="utf-8")
-    return HTMLResponse(welcome, status_code=200)
+    """Onboarding page shown when no owner exists in the DB yet.
+
+    Two flavors: if BOT_TOKEN is still empty (first-run, never set up),
+    point the user at /setup; otherwise they configured the bot but
+    haven't sent /start yet — show the original "DM your bot" copy.
+    """
+    from src.config import settings
+
+    bot_ready = bool(settings.bot_token.get_secret_value().strip())
+    tpl = "welcome.html" if bot_ready else "welcome_setup.html"
+    body = (_TEMPLATES_DIR / tpl).read_text(encoding="utf-8")
+    return HTMLResponse(body, status_code=200)

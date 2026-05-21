@@ -10,9 +10,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    bot_token: SecretStr
-    database_url: str
-    owner_telegram_id: int
+    # Bot/owner can be empty on first run — the web /setup page writes
+    # them into .env and the user restarts. If they're empty, main.py
+    # boots the web UI only and skips Telegram polling.
+    bot_token: SecretStr = SecretStr("")
+    database_url: str = "postgresql+asyncpg://mynota:mynota@localhost:5432/mynota"
+    owner_telegram_id: int = 0
 
     postgres_user: str = "mynota"
     postgres_password: SecretStr = SecretStr("")

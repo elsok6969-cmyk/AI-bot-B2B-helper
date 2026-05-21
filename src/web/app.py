@@ -13,7 +13,7 @@ from src.services.channels import ChannelSendError
 from src.utils.logger import logger
 from src.web.deps import NoOwnerError, render_welcome
 from src.web.flash import attach_flash_to_redirect, take_flash
-from src.web.routes import auth, clients, dashboard, drafts, mail, telethon
+from src.web.routes import auth, clients, dashboard, drafts, mail, setup, telethon
 from src.web.routes import settings as settings_route
 from src.web.security import security_middleware
 
@@ -25,6 +25,7 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
     app.add_middleware(BaseHTTPMiddleware, dispatch=security_middleware)
     app.include_router(auth.router)
+    app.include_router(setup.router)
     app.include_router(dashboard.router)
     app.include_router(clients.router)
     app.include_router(drafts.router)

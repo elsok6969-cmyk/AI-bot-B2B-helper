@@ -73,6 +73,16 @@ async def _truncate_tables() -> AsyncIterator[None]:
     yield
 
 
+@pytest.fixture(autouse=True)
+def _ensure_ai_client() -> None:
+    """The AI SDK is lazily constructed now; tests patch
+    ``ai_client._client.messages.create`` so we have to force the SDK to
+    materialize before each test."""
+    from src.ai.client import ai_client
+
+    ai_client._ensure_client()
+
+
 @pytest_asyncio.fixture
 async def session() -> AsyncIterator[AsyncSession]:
     from src.db.session import SessionLocal

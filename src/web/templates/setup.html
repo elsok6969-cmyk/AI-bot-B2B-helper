@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Setup — Mynota{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold mb-2">Setup</h1>
+<p class="text-sm text-slate-600 mb-4">
+  Это первичная настройка. Заполни поля и нажми «Сохранить», потом
+  перезапусти лаунчер — изменения подхватятся.
+  <br>
+  Файл: <code class="bg-slate-200 px-1 rounded text-xs">{{ env_path }}</code>
+</p>
+
+<div class="grid md:grid-cols-2 gap-3 mb-6 text-sm">
+  <div class="bg-white border border-slate-200 rounded p-3">
+    <div class="text-xs text-slate-500 uppercase">Telegram-бот</div>
+    <div>{% if running_with.bot_token_set and running_with.owner_id_set %}
+      <span class="text-green-700">подключён</span>
+    {% else %}
+      <span class="text-rose-700">не настроен</span>
+    {% endif %}</div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded p-3">
+    <div class="text-xs text-slate-500 uppercase">AI</div>
+    <div>провайдер: {{ running_with.ai_provider }}</div>
+  </div>
+</div>
+
+<form method="post" action="/setup/save" class="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
+
+  <fieldset class="border border-slate-200 rounded p-3">
+    <legend class="px-2 text-sm font-medium">Telegram</legend>
+    <p class="text-xs text-slate-500 mb-2">
+      Токен бота — у <a href="https://t.me/BotFather" target="_blank" class="underline">@BotFather</a> в Telegram. Твой TG ID — у <a href="https://t.me/userinfobot" target="_blank" class="underline">@userinfobot</a>.
+    </p>
+    <label class="block mb-2">
+      <span class="text-xs text-slate-500 block">BOT_TOKEN {% if env.BOT_TOKEN %}(уже задан, оставь пустым = не менять){% endif %}</span>
+      <input type="password" name="bot_token" autocomplete="off"
+             placeholder="{% if env.BOT_TOKEN %}не менять{% else %}1234567890:AAE...{% endif %}"
+             class="w-full rounded border-slate-300 px-2 py-1 text-sm font-mono">
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500 block">OWNER_TELEGRAM_ID</span>
+      <input type="text" name="owner_telegram_id"
+             value="{{ env.OWNER_TELEGRAM_ID or '' }}"
+             placeholder="123456789"
+             class="w-full md:w-64 rounded border-slate-300 px-2 py-1 text-sm font-mono">
+    </label>
+  </fieldset>
+
+  <fieldset class="border border-slate-200 rounded p-3">
+    <legend class="px-2 text-sm font-medium">AI</legend>
+    <label class="block mb-2">
+      <span class="text-xs text-slate-500 block">Провайдер</span>
+      <select name="ai_provider" class="rounded border-slate-300 px-2 py-1 text-sm">
+        <option value="anthropic" {% if env.AI_PROVIDER == 'anthropic' or not env.AI_PROVIDER %}selected{% endif %}>anthropic (Claude — основной)</option>
+        <option value="kimi" {% if env.AI_PROVIDER == 'kimi' %}selected{% endif %}>kimi (Moonshot — дешёвый для теста)</option>
+      </select>
+    </label>
+    <label class="block mb-2">
+      <span class="text-xs text-slate-500 block">ANTHROPIC_API_KEY {% if env.ANTHROPIC_API_KEY %}(задан){% endif %}</span>
+      <input type="password" name="anthropic_api_key" autocomplete="off"
+             placeholder="{% if env.ANTHROPIC_API_KEY %}не менять{% else %}sk-ant-...{% endif %}"
+             class="w-full rounded border-slate-300 px-2 py-1 text-sm font-mono">
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500 block">KIMI_API_KEY {% if env.KIMI_API_KEY %}(задан){% endif %}</span>
+      <input type="password" name="kimi_api_key" autocomplete="off"
+             placeholder="{% if env.KIMI_API_KEY %}не менять{% else %}sk-...{% endif %}"
+             class="w-full rounded border-slate-300 px-2 py-1 text-sm font-mono">
+    </label>
+  </fieldset>
+
+  <fieldset class="border border-slate-200 rounded p-3">
+    <legend class="px-2 text-sm font-medium">Telethon (личный ТГ-аккаунт — опционально)</legend>
+    <p class="text-xs text-slate-500 mb-2">
+      Получи на <a href="https://my.telegram.org" target="_blank" class="underline">my.telegram.org</a> → API Development Tools.
+      Без этого Telethon-ингест личных чатов не работает (бот через @BotFather — это отдельно, и он будет работать).
+    </p>
+    <label class="block mb-2">
+      <span class="text-xs text-slate-500 block">TELETHON_API_ID</span>
+      <input type="text" name="telethon_api_id"
+             value="{{ env.TELETHON_API_ID or '' }}"
+             placeholder="123456"
+             class="w-full md:w-64 rounded border-slate-300 px-2 py-1 text-sm font-mono">
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate-500 block">TELETHON_API_HASH {% if env.TELETHON_API_HASH %}(задан){% endif %}</span>
+      <input type="password" name="telethon_api_hash" autocomplete="off"
+             placeholder="{% if env.TELETHON_API_HASH %}не менять{% else %}32 hex символа{% endif %}"
+             class="w-full rounded border-slate-300 px-2 py-1 text-sm font-mono">
+    </label>
+  </fieldset>
+
+  <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm rounded px-4 py-2">
+    Сохранить
+  </button>
+</form>
+
+<div class="mt-6 text-sm text-slate-600">
+  После сохранения нажми Ctrl+C в терминале, в котором крутится бот, потом снова двойной клик
+  по <code>Start.command</code> — он подхватит новые значения.
+</div>
+{% endblock %}

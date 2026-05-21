@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>Mynota — первая настройка</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50">
+<main class="max-w-2xl mx-auto px-6 py-12">
+  <h1 class="text-3xl font-semibold mb-3">Mynota — первая настройка</h1>
+  <p class="text-slate-600 mb-6">
+    Telegram-бот ещё не подключён (нет <code>BOT_TOKEN</code> в <code>.env</code>).
+    Можно заполнить всё прямо здесь, через веб.
+  </p>
+
+  <a href="/setup" class="inline-block bg-blue-600 hover:bg-blue-700 text-white text-sm rounded px-4 py-2 mb-6">
+    → Открыть /setup
+  </a>
+
+  <section class="bg-white border border-slate-200 rounded-lg p-4">
+    <h2 class="font-medium mb-2">Что понадобится</h2>
+    <ul class="list-disc list-inside text-sm space-y-1 text-slate-700">
+      <li><strong>BOT_TOKEN</strong> — у <a class="text-blue-700 underline" href="https://t.me/BotFather" target="_blank">@BotFather</a> в Telegram: /newbot</li>
+      <li><strong>OWNER_TELEGRAM_ID</strong> — твой Telegram id, у <a class="text-blue-700 underline" href="https://t.me/userinfobot" target="_blank">@userinfobot</a></li>
+      <li><strong>ANTHROPIC_API_KEY</strong> (или Kimi для дешёвого теста)</li>
+      <li>Опционально — <strong>TELETHON_API_ID/HASH</strong> с <a class="text-blue-700 underline" href="https://my.telegram.org" target="_blank">my.telegram.org</a> если хочешь ингест личного ТГ-аккаунта</li>
+    </ul>
+  </section>
+
+  <p class="text-sm text-slate-500 mt-4">
+    После сохранения через /setup перезапусти лаунчер (Ctrl+C в терминале → снова двойной клик по Start.command).
+  </p>
+</main>
+</body></html>
